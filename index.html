@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>HORA — One Artwork Each Hour</title>
+  <meta name="description" content="A minimalist full-screen fine art gallery displaying a new artwork every hour from the Art Institute of Chicago and The Metropolitan Museum of Art." />
+  <meta name="theme-color" content="#100f0e" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2312100e'/%3E%3Crect x='13' y='13' width='38' height='38' rx='3' fill='none' stroke='%23d4bf9a' stroke-width='2.5'/%3E%3Crect x='21' y='21' width='22' height='22' rx='1' fill='none' stroke='%23d4bf9a' stroke-opacity='0.45' stroke-width='1.5'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <main id="gallery-viewport" class="gallery-viewport" data-framing="ambient">
+    <!-- Subtle color-matched blurred ambient backdrop -->
+    <div class="ambient-backdrop" aria-hidden="true">
+      <img id="ambient-image" class="ambient-image" alt="" decoding="async" />
+      <div class="ambient-vignette"></div>
+    </div>
+
+    <!-- Archival subtle grain texture -->
+    <div class="gallery-grain" aria-hidden="true"></div>
+
+    <!-- Primary Artwork Canvas -->
+    <section class="artwork-stage" aria-label="Current hourly artwork">
+      <div class="artwork-frame">
+        <img
+          id="artwork-image"
+          class="artwork-img"
+          alt="Current featured museum artwork"
+          decoding="async"
+        />
+      </div>
+    </section>
+
+    <!-- Minimal Loading / Error Overlay -->
+    <div id="stage-status" class="stage-status is-visible" data-mode="loading" role="status" aria-live="polite">
+      <div class="status-ring" aria-hidden="true"></div>
+      <p id="status-label" class="status-label">Selecting this hour’s work…</p>
+      <button id="status-retry-btn" class="status-retry" type="button">Try Again</button>
+    </div>
+
+    <!-- Top-Left Translucent Hamburger Menu Trigger -->
+    <button
+      id="menu-trigger"
+      class="chrome-control menu-trigger"
+      type="button"
+      aria-label="Open gallery menu"
+      aria-controls="menu-drawer"
+      aria-expanded="false"
+    >
+      <span class="hamburger-lines" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </span>
+    </button>
+
+    <!-- Bottom-Center Translucent Up-Arrow Trigger -->
+    <div class="info-trigger-wrap">
+      <div id="whisper-caption" class="whisper-caption" aria-hidden="true"></div>
+      <button
+        id="info-trigger"
+        class="chrome-control info-trigger"
+        type="button"
+        aria-label="View artwork details and art history"
+        aria-controls="info-drawer"
+        aria-expanded="false"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Shared Backdrop Scrim -->
+    <div id="overlay-scrim" class="overlay-scrim" aria-hidden="true"></div>
+
+    <!-- Bottom Curatorial Info Drawer -->
+    <aside
+      id="info-drawer"
+      class="info-drawer"
+      aria-label="Artwork details"
+      aria-hidden="true"
+    >
+      <div class="drawer-handle-bar">
+        <div class="drawer-pill-row">
+          <span id="info-museum" class="museum-tag">Museum</span>
+          <span class="tag-dot" aria-hidden="true"></span>
+          <span id="info-type" class="type-tag">Fine Art</span>
+          <span class="tag-dot" aria-hidden="true"></span>
+          <span id="info-hour-badge" class="hour-tag">This Hour</span>
+        </div>
+        <button id="info-close-btn" class="drawer-close-btn" type="button" aria-label="Close artwork details">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="info-drawer-body">
+        <h1 id="info-title" class="artwork-title">Untitled</h1>
+        <p id="info-artist" class="artwork-artist"></p>
+
+        <dl id="info-meta-grid" class="meta-grid"></dl>
+
+        <section id="info-history-section" class="history-section" hidden>
+          <div class="history-header">
+            <h2 class="section-eyebrow">Art History &amp; Context</h2>
+            <span id="info-history-source" class="history-source"></span>
+          </div>
+          <div id="info-history-prose" class="history-prose"></div>
+        </section>
+
+        <div id="info-tags" class="subject-tags" hidden></div>
+
+        <footer class="placard-footer">
+          <p id="info-credit" class="credit-line"></p>
+          <a
+            id="info-museum-link"
+            class="museum-link"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span>View at Museum</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </a>
+        </footer>
+      </div>
+    </aside>
+
+    <!-- Left Translucent Hamburger Menu Drawer -->
+    <aside
+      id="menu-drawer"
+      class="menu-drawer"
+      aria-label="Gallery menu and settings"
+      aria-hidden="true"
+    >
+      <header class="menu-header">
+        <div class="brand-lockup">
+          <span class="brand-name">HORA</span>
+          <span class="brand-sub">Hourly Fine Art</span>
+        </div>
+        <button id="menu-close-btn" class="drawer-close-btn" type="button" aria-label="Close menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </header>
+
+      <nav class="menu-tabs" role="tablist" aria-label="Menu sections">
+        <button id="tab-gallery" class="menu-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-gallery" data-tab="gallery">Gallery</button>
+        <button id="tab-settings" class="menu-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Filters</button>
+        <button id="tab-about" class="menu-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-about" data-tab="about">About</button>
+      </nav>
+
+      <div class="menu-body">
+        <!-- Tab 1: Gallery Controls (Skip + Framing + Fullscreen) -->
+        <section id="panel-gallery" class="menu-panel is-active" role="tabpanel" aria-labelledby="tab-gallery">
+          <div class="menu-group">
+            <span class="menu-group-label">This Hour</span>
+            <div class="hour-card">
+              <div class="hour-readout">
+                <span id="menu-next-label" class="hour-next-label">Next artwork at --:00</span>
+                <span id="menu-countdown" class="hour-countdown">--m</span>
+              </div>
+              <button id="skip-btn" class="skip-btn" type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                  <line x1="19" y1="5" x2="19" y2="19"></line>
+                </svg>
+                <span id="skip-btn-label">Skip Artwork</span>
+              </button>
+              <p id="skip-hint" class="skip-hint">1 skip available this hour</p>
+            </div>
+          </div>
+
+          <div class="menu-group">
+            <span class="menu-group-label">Display Framing</span>
+            <div class="segmented-control" role="group" aria-label="Artwork framing style">
+              <button id="frame-ambient-btn" class="segment-btn is-active" type="button" data-framing-option="ambient">Ambient</button>
+              <button id="frame-fill-btn" class="segment-btn" type="button" data-framing-option="fill">Fill</button>
+              <button id="frame-matte-btn" class="segment-btn" type="button" data-framing-option="matte">Matte</button>
+            </div>
+          </div>
+
+          <div class="menu-group">
+            <span class="menu-group-label">Viewport</span>
+            <button id="fullscreen-btn" class="subtle-action-btn" type="button">
+              <span id="fullscreen-label">Enter Fullscreen</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- Tab 2: Include / Exclude Collection Filters -->
+        <section id="panel-settings" class="menu-panel" role="tabpanel" aria-labelledby="tab-settings">
+          <div class="menu-group">
+            <span class="menu-group-label">Museums</span>
+            <div id="museum-toggles" class="toggle-list"></div>
+          </div>
+
+          <div class="menu-group">
+            <span class="menu-group-label">Art Types (Include / Exclude)</span>
+            <div id="category-toggles" class="toggle-list"></div>
+          </div>
+
+          <div class="menu-group">
+            <span class="menu-group-label">Curatorial Depth</span>
+            <label class="toggle-row" for="toggle-highlights">
+              <span class="toggle-text">
+                <span class="toggle-title">Prioritize Museum Highlights</span>
+                <span class="toggle-desc">Favor iconic, well-documented works over deep-vault fragments</span>
+              </span>
+              <input id="toggle-highlights" class="switch-input" type="checkbox" checked />
+            </label>
+          </div>
+
+          <p class="settings-note">
+            Filter changes are saved automatically and apply on the next hourly rotation or skip.
+          </p>
+        </section>
+
+        <!-- Tab 3: About -->
+        <section id="panel-about" class="menu-panel" role="tabpanel" aria-labelledby="tab-about">
+          <div class="about-copy">
+            <p>
+              <strong>HORA</strong> is a quiet, minimalist personal gallery designed for unhurried looking. A new artwork arrives cleanly on the top of each hour, with a single optional skip per hour.
+            </p>
+            <p>
+              Artworks and metadata are fetched directly in your browser from two open museum collections:
+            </p>
+            <p>
+              <strong>Art Institute of Chicago</strong> via <a href="https://api.artic.edu/docs/" target="_blank" rel="noopener noreferrer">api.artic.edu</a> (collection data CC0; curatorial descriptions CC BY 4.0).
+            </p>
+            <p>
+              <strong>The Metropolitan Museum of Art</strong> via <a href="https://metmuseum.github.io/" target="_blank" rel="noopener noreferrer">collectionapi.metmuseum.org</a> (Open Access CC0), supplemented with short historical notes from Wikipedia/Wikidata when linked.
+            </p>
+          </div>
+
+          <div class="menu-group">
+            <span class="menu-group-label">Keyboard Shortcuts</span>
+            <div class="shortcut-list">
+              <span>Artwork details drawer</span>
+              <span><kbd class="kbd">↑</kbd> / <kbd class="kbd">I</kbd></span>
+              <span>Gallery menu</span>
+              <span><kbd class="kbd">M</kbd></span>
+              <span>Cycle framing mode</span>
+              <span><kbd class="kbd">F</kbd></span>
+              <span>Close open panel</span>
+              <span><kbd class="kbd">Esc</kbd></span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <!-- Subtle Floating Toast -->
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
