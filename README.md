@@ -13,6 +13,13 @@ A quiet, zero-build static web app that displays a full-screen museum artwork ea
   - **Rate-Limit Friendly Caching** — caches session pools per category, batch-fetches up to 10 Art Institute of Chicago artworks per request via `?ids=`, and automatically routes around HTTP `429` responses.
   - **About & Keyboard Shortcuts** — museum attributions and quick navigation (`↑`/`I` details, `M` menu, `F` framing, `Esc` close).
 
+- **Installable Phone App (PWA)** — full-screen standalone mode on iOS and Android, custom home-screen icons, notch/safe-area support, and offline shell + current-artwork caching via `sw.js`.
+
+## Installing on Your Phone (PWA)
+
+- **Android (Chrome / Edge):** Open the live site, tap the browser’s **Install app** prompt (or open HORA’s menu → **Gallery → Install App**).
+- **iPhone / iPad (Safari):** Open the live site in Safari, tap **Share** (`↑`), and choose **Add to Home Screen**.
+
 ## Running Locally
 
 Because HORA uses native ES modules, serve the directory with any static HTTP server:

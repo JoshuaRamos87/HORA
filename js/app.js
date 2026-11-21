@@ -76,8 +76,13 @@ const dom = {
   skipPips: document.getElementById('skip-pips'),
   skipHint: document.getElementById('skip-hint'),
   framingButtons: Array.from(document.querySelectorAll('[data-framing-option]')),
+  viewportGroup: document.getElementById('viewport-group'),
   fullscreenBtn: document.getElementById('fullscreen-btn'),
   fullscreenLabel: document.getElementById('fullscreen-label'),
+  installGroup: document.getElementById('install-group'),
+  installBtn: document.getElementById('install-btn'),
+  installLabel: document.getElementById('install-label'),
+  installIosHint: document.getElementById('install-ios-hint'),
   museumToggles: document.getElementById('museum-toggles'),
   categoryToggles: document.getElementById('category-toggles'),
   toggleHighlights: document.getElementById('toggle-highlights'),
@@ -101,6 +106,7 @@ let cooldownTimer = null;
 let toastTimer = null;
 let skipCooldownUntil = 0;
 let filterCooldownUntil = 0;
+let deferredInstallPrompt = null;
 
 /* ==========================================================================
    Toast & Status Helpers
@@ -781,6 +787,94 @@ function bindSwipeGestures() {
 }
 
 /* ==========================================================================
+   PWA Installability & Service Worker Registration
+   ========================================================================== */
+
+function isStandaloneMode() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function isIosSafari() {
+  const ua = window.navigator.userAgent || '';
+  const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isWebkit = /WebKit/i.test(ua);
+  const isOtherBrowser = /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+  return isIos && isWebkit && !isOtherBrowser;
+}
+
+function setupPwaSupport() {
+  const standalone = isStandaloneMode();
+  const supportsFullscreen = typeof document.documentElement.requestFullscreen === 'function';
+
+  // Hide browser fullscreen button when already running as a full-screen installed PWA or on iOS.
+  if (standalone || !supportsFullscreen) {
+    dom.viewportGroup.hidden = true;
+  }
+
+  if (standalone) {
+    dom.installGroup.hidden = true;
+    return;
+  }
+
+  // iOS Safari does not emit beforeinstallprompt; offer a clean inline Add-to-Home-Screen guide.
+  if (isIosSafari()) {
+    dom.installLabel.textContent = 'Install on iPhone / iPad';
+    dom.installGroup.hidden = false;
+  }
+
+  // Chromium / Android / Edge native PWA install flow.
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    dom.installLabel.textContent = 'Install App';
+    dom.installIosHint.hidden = true;
+    dom.installGroup.hidden = false;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    dom.installGroup.hidden = true;
+    dom.installIosHint.hidden = true;
+    showToast('HORA installed to your home screen');
+  });
+
+  dom.installBtn.addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      const promptEvent = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      promptEvent.prompt();
+      try {
+        const choice = await promptEvent.userChoice;
+        if (choice?.outcome !== 'accepted') {
+          dom.installGroup.hidden = true;
+          showToast('You can install anytime from your browser menu');
+        }
+      } catch {
+        dom.installGroup.hidden = true;
+      }
+      return;
+    }
+
+    if (isIosSafari()) {
+      dom.installIosHint.hidden = !dom.installIosHint.hidden;
+    }
+  });
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {
+      // Service worker registration is optional; fail quietly on unsupported hosts/origins.
+    });
+  });
+}
+
+/* ==========================================================================
    Event Wiring & Bootstrap
    ========================================================================== */
 
@@ -864,6 +958,8 @@ async function init() {
   applyFraming(settings.framing);
   renderFilterSettings();
   updateFullscreenButton();
+  setupPwaSupport();
+  registerServiceWorker();
   bindEvents();
   updateClockUI();
   scheduleNextHourRotation();

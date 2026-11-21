@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="galleryGlow" cx="50%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#221e1a" />
+      <stop offset="65%" stop-color="#12100e" />
+      <stop offset="100%" stop-color="#0b0a09" />
+    </radialGradient>
+    <linearGradient id="brassFrame" gradientUnits="userSpaceOnUse" x1="88" y1="88" x2="424" y2="424">
+      <stop offset="0%" stop-color="#e7d4b0" />
+      <stop offset="50%" stop-color="#cbb287" />
+      <stop offset="100%" stop-color="#a88e62" />
+    </linearGradient>
+    <linearGradient id="innerMatte" gradientUnits="userSpaceOnUse" x1="0" y1="88" x2="0" y2="424">
+      <stop offset="0%" stop-color="#1a1714" />
+      <stop offset="100%" stop-color="#0f0d0c" />
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed obsidian background -->
+  <rect width="512" height="512" fill="url(#galleryGlow)" />
+
+  <!-- Outer museum frame -->
+  <rect x="84" y="84" width="344" height="344" rx="22" fill="url(#innerMatte)" stroke="url(#brassFrame)" stroke-width="10" />
+
+  <!-- Subtle inner archival passe-partout hairline -->
+  <rect x="122" y="122" width="268" height="268" rx="8" fill="none" stroke="#d4bf9a" stroke-opacity="0.32" stroke-width="3.5" />
+
+  <!-- Minimalist architectural "H" monogram with serif terminals -->
+  <g fill="url(#brassFrame)">
+    <!-- Left & right vertical stems -->
+    <rect x="190" y="192" width="15" height="146" rx="2" />
+    <rect x="307" y="192" width="15" height="146" rx="2" />
+    <!-- Crossbar -->
+    <rect x="198" y="259" width="116" height="11" rx="2" />
+    <!-- Refined serif feet -->
+    <rect x="176" y="190" width="43" height="7" rx="3" />
+    <rect x="176" y="333" width="43" height="7" rx="3" />
+    <rect x="293" y="190" width="43" height="7" rx="3" />
+    <rect x="293" y="333" width="43" height="7" rx="3" />
+  </g>
+
+  <!-- Top-of-the-hour brass point -->
+  <circle cx="256" cy="156" r="7" fill="#e7d4b0" opacity="0.9" />
+</svg>
