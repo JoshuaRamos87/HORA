@@ -1,12 +1,12 @@
 /**
  * HORA — Progressive Web App Service Worker
- * - Precaches the minimalist app shell for instant launches & offline support.
- * - Uses Network-First for same-origin shell files so deploys update seamlessly.
- * - Keeps the 2 most recent artwork images cached so the current hourly piece
- *   still renders cleanly if reopened offline.
+ * - Precaches the minimalist app shell bypassing stale HTTP caches (`cache: 'reload'`).
+ * - Revalidates same-origin shell files (`cache: 'no-cache'`) so GitHub Pages deploys
+ *   never serve mismatched HTML/CSS/JS versions, with full offline cache fallback.
+ * - Keeps the 2 most recent artwork images cached for offline viewing.
  */
 
-const SHELL_CACHE = 'hora-shell-v4';
+const SHELL_CACHE = 'hora-shell-v5';
 const ARTWORK_CACHE = 'hora-artwork-v1';
 const MAX_CACHED_ARTWORKS = 2;
 
@@ -32,7 +32,13 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL_ASSETS))
+      .then((cache) =>
+        Promise.all(
+          SHELL_ASSETS.map((asset) =>
+            cache.add(new Request(asset, { cache: 'reload' }))
+          )
+        )
+      )
       .then(() => self.skipWaiting())
   );
 });
@@ -70,10 +76,10 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // 1. Same-origin app shell & navigation: Network-First with cache fallback.
+  // 1. Same-origin app shell & navigation: ETag-revalidated Network-First with cache fallback.
   if (url.origin === self.location.origin) {
     event.respondWith(
-      fetch(request)
+      fetch(url.href, { cache: 'no-cache' })
         .then((response) => {
           if (response && response.ok && response.type === 'basic') {
             const copy = response.clone();
@@ -82,7 +88,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(async () => {
-          const cached = await caches.match(request);
+          const cached = await caches.match(request, { ignoreSearch: true });
           if (cached) return cached;
           if (request.mode === 'navigate') {
             return caches.match('./index.html');

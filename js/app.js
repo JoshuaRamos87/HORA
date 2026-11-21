@@ -954,10 +954,22 @@ function setupPwaSupport() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloadedForUpdate = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloadedForUpdate) return;
+    reloadedForUpdate = true;
+    window.location.reload();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {
-      // Service worker registration is optional; fail quietly on unsupported hosts/origins.
-    });
+    navigator.serviceWorker
+      .register('./sw.js', { scope: './', updateViaCache: 'none' })
+      .then((reg) => reg.update().catch(() => {}))
+      .catch(() => {
+        // Service worker registration is optional; fail quietly on unsupported hosts/origins.
+      });
   });
 }
 
