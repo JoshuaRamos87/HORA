@@ -243,3 +243,8 @@ export const VERIFIED_FALLBACK_IDS = {
 
 export const RECENT_HISTORY_LIMIT = 80;
 export const IDLE_TIMEOUT_MS = 3600;
+export const MAX_SKIPS_PER_HOUR = 5;
+export const SKIP_COOLDOWN_MS = 2000;
+export const FILTER_APPLY_COOLDOWN_MS = 3000;
+export const AIC_RATE_LIMIT_COOLDOWN_MS = 60_000;
+

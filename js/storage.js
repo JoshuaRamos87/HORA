@@ -1,12 +1,13 @@
 /**
  * Client-side persistence for user settings, cached hourly artwork,
- * recent history deduplication, and the 1-skip-per-hour lock.
+ * recent history deduplication, and the counted hourly skip budget.
  */
 
 import {
   ART_CATEGORIES,
   DEFAULT_SETTINGS,
   FRAMING_MODES,
+  MAX_SKIPS_PER_HOUR,
   MUSEUMS,
   RECENT_HISTORY_LIMIT,
   STORAGE_KEYS,
@@ -95,21 +96,45 @@ export function getEnabledCategories(settings) {
   return ART_CATEGORIES.map((c) => c.id).filter((id) => settings.categories[id]);
 }
 
+/**
+ * Stable signature of the curatorial filter settings (museums, art types, highlights),
+ * excluding visual framing preferences so Apply Filters only triggers on collection changes.
+ */
+export function getFilterSignature(settings) {
+  const normalized = normalizeSettings(settings);
+  return JSON.stringify({
+    museums: getEnabledMuseums(normalized),
+    categories: getEnabledCategories(normalized),
+    highlightsOnly: normalized.highlightsOnly,
+  });
+}
+
 export function loadGalleryState(customStorage) {
   const store = resolveStorage(customStorage);
   const empty = {
     hourKey: null,
     artwork: null,
-    skippedHourKey: null,
+    skipHourKey: null,
+    skipsUsed: 0,
     recentIds: [],
   };
   if (!store) return empty;
   const parsed = safeParse(store.getItem(STORAGE_KEYS.STATE));
   if (!parsed || typeof parsed !== 'object') return empty;
+
+  // Migrate legacy single-skip `skippedHourKey` records smoothly.
+  let skipHourKey = typeof parsed.skipHourKey === 'string' ? parsed.skipHourKey : null;
+  let skipsUsed = Number.isInteger(parsed.skipsUsed) && parsed.skipsUsed >= 0 ? parsed.skipsUsed : 0;
+  if (!skipHourKey && typeof parsed.skippedHourKey === 'string') {
+    skipHourKey = parsed.skippedHourKey;
+    skipsUsed = Math.max(1, skipsUsed);
+  }
+
   return {
     hourKey: typeof parsed.hourKey === 'string' ? parsed.hourKey : null,
     artwork: parsed.artwork && typeof parsed.artwork === 'object' ? parsed.artwork : null,
-    skippedHourKey: typeof parsed.skippedHourKey === 'string' ? parsed.skippedHourKey : null,
+    skipHourKey,
+    skipsUsed,
     recentIds: Array.isArray(parsed.recentIds)
       ? parsed.recentIds.filter((id) => typeof id === 'string').slice(-RECENT_HISTORY_LIMIT)
       : [],
@@ -121,7 +146,8 @@ export function saveGalleryState(state, customStorage) {
   const clean = {
     hourKey: state.hourKey || null,
     artwork: state.artwork || null,
-    skippedHourKey: state.skippedHourKey || null,
+    skipHourKey: state.skipHourKey || null,
+    skipsUsed: Number.isInteger(state.skipsUsed) && state.skipsUsed >= 0 ? state.skipsUsed : 0,
     recentIds: Array.isArray(state.recentIds)
       ? Array.from(new Set(state.recentIds)).slice(-RECENT_HISTORY_LIMIT)
       : [],
@@ -137,14 +163,29 @@ export function saveGalleryState(state, customStorage) {
 }
 
 /**
- * Returns true if the visitor still has their 1 hourly skip available for `hourKey`.
+ * Returns how many skips have already been used in `hourKey`.
  */
-export function canSkipInHour(state, hourKey) {
-  return Boolean(hourKey) && state.skippedHourKey !== hourKey;
+export function getSkipsUsedInHour(state, hourKey) {
+  if (!hourKey || !state || state.skipHourKey !== hourKey) return 0;
+  return Math.max(0, Number(state.skipsUsed) || 0);
 }
 
 /**
- * Records a newly displayed artwork into state (optionally consuming the hourly skip).
+ * Returns how many skips remain in `hourKey`.
+ */
+export function getSkipsRemainingInHour(state, hourKey, maxSkips = MAX_SKIPS_PER_HOUR) {
+  return Math.max(0, maxSkips - getSkipsUsedInHour(state, hourKey));
+}
+
+/**
+ * Returns true if the visitor still has at least one hourly skip available for `hourKey`.
+ */
+export function canSkipInHour(state, hourKey, maxSkips = MAX_SKIPS_PER_HOUR) {
+  return Boolean(hourKey) && getSkipsRemainingInHour(state, hourKey, maxSkips) > 0;
+}
+
+/**
+ * Records a newly displayed artwork into state (optionally incrementing hourly skips used).
  */
 export function recordDisplayedArtwork(state, artwork, hourKey, { consumedSkip = false } = {}) {
   const nextRecent = [...(state.recentIds || [])];
@@ -153,10 +194,16 @@ export function recordDisplayedArtwork(state, artwork, hourKey, { consumedSkip =
     if (existingIdx !== -1) nextRecent.splice(existingIdx, 1);
     nextRecent.push(artwork.uid);
   }
+
+  const prevUsed = getSkipsUsedInHour(state, hourKey);
+  const nextUsed = consumedSkip ? prevUsed + 1 : prevUsed;
+  const nextSkipHourKey = nextUsed > 0 ? hourKey : null;
+
   return {
     hourKey,
     artwork,
-    skippedHourKey: consumedSkip ? hourKey : state.skippedHourKey,
+    skipHourKey: nextSkipHourKey,
+    skipsUsed: nextUsed,
     recentIds: nextRecent.slice(-RECENT_HISTORY_LIMIT),
   };
 }

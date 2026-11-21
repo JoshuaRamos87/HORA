@@ -178,7 +178,10 @@
                 </svg>
                 <span id="skip-btn-label">Skip Artwork</span>
               </button>
-              <p id="skip-hint" class="skip-hint">1 skip available this hour</p>
+              <div class="skip-meta">
+                <div id="skip-pips" class="skip-pips" aria-hidden="true"></div>
+                <p id="skip-hint" class="skip-hint">5 skips left this hour</p>
+              </div>
             </div>
           </div>
 
@@ -228,16 +231,25 @@
             </label>
           </div>
 
-          <p class="settings-note">
-            Filter changes are saved automatically and apply on the next hourly rotation or skip.
-          </p>
+          <div class="filter-apply-bar">
+            <button id="apply-filters-btn" class="apply-filters-btn" type="button" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              <span id="apply-filters-label">Filters Active</span>
+            </button>
+            <p id="filter-apply-hint" class="settings-note">
+              Toggle any museum or art type to preview matching art without using a skip.
+            </p>
+          </div>
         </section>
 
         <!-- Tab 3: About -->
         <section id="panel-about" class="menu-panel" role="tabpanel" aria-labelledby="tab-about">
           <div class="about-copy">
             <p>
-              <strong>HORA</strong> is a quiet, minimalist personal gallery designed for unhurried looking. A new artwork arrives cleanly on the top of each hour, with a single optional skip per hour.
+              <strong>HORA</strong> is a quiet, minimalist personal gallery designed for unhurried looking. A new artwork arrives cleanly at the top of each hour, with up to 5 skips per hour and instant filter previews.
             </p>
             <p>
               Artworks and metadata are fetched directly in your browser from two open museum collections:

@@ -8,8 +8,9 @@ A quiet, zero-build static web app that displays a full-screen museum artwork ea
 - **On-the-hour (`:00`) rotation** — smoothly swaps to a new piece at the top of every local clock hour and wakes cleanly after sleep/background tabs.
 - **Translucent bottom up-arrow → Museum Placard drawer** — reveals title, artist, era/period, movement, origin/culture, medium, dimensions, gallery status, and short art history (Art Institute of Chicago curatorial essays, plus automatic Wikipedia/Wikidata summaries for Met works when linked).
 - **Translucent top-left hamburger menu**:
-  - **1 Skip Per Hour** — lets you skip once per clock hour, displaying a live countdown until `:00` once used.
-  - **Include / Exclude Filters** — toggle either museum, include/exclude any of 6 art types (*Paintings*, *Drawings & Prints*, *Photography*, *Sculpture*, *Decorative Arts & Textiles*, *Ancient & World Artifacts*), and toggle **Prioritize Museum Highlights**.
+  - **5 Skips Per Hour** — lets you skip up to 5 times per clock hour with visual progress pips, a 2-second burst guard, and a live countdown until `:00`.
+  - **Include / Exclude Filters + Instant Preview** — toggle either museum, include/exclude any of 6 art types (*Paintings*, *Drawings & Prints*, *Photography*, *Sculpture*, *Decorative Arts & Textiles*, *Ancient & World Artifacts*), toggle **Prioritize Museum Highlights**, and click **Apply & Refresh Artwork** to preview matching art immediately without spending a skip.
+  - **Rate-Limit Friendly Caching** — caches session pools per category, batch-fetches up to 10 Art Institute of Chicago artworks per request via `?ids=`, and automatically routes around HTTP `429` responses.
   - **About & Keyboard Shortcuts** — museum attributions and quick navigation (`↑`/`I` details, `M` menu, `F` framing, `Esc` close).
 
 ## Running Locally

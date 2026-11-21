@@ -1,11 +1,14 @@
 /**
  * Live museum API clients for:
- *  - Art Institute of Chicago (api.artic.edu/api/v1)
+ *  - Art Institute of Chicago (api.artic.edu/api/v1) with session pool caching,
+ *    multi-ID batch detail fetches (?ids=), and HTTP 429 cooldown routing
  *  - The Metropolitan Museum of Art (collectionapi.metmuseum.org/public/collection/v1.1 & /v1)
+ *    with session objectID pool caching
  *  - Optional Wikipedia / Wikidata context enrichment for Met works
  */
 
 import {
+  AIC_RATE_LIMIT_COOLDOWN_MS,
   API_ENDPOINTS,
   ART_CATEGORIES,
   VERIFIED_FALLBACK_IDS,
@@ -59,7 +62,32 @@ const AIC_DETAIL_FIELDS = [
   'is_public_domain',
 ].join(',');
 
+const AIC_BATCH_SIZE = 10;
 const CATEGORY_BY_ID = new Map(ART_CATEGORIES.map((c) => [c.id, c]));
+
+// In-memory session caches to minimize API calls during skips & filter previews.
+const aicPoolCache = new Map(); // key `${catId}:${highlightsOnly}` -> Artwork[]
+const metIdPoolCache = new Map(); // key `${catId}:${highlightsOnly}` -> number[]
+let aicCooldownUntil = 0;
+
+/**
+ * Clears in-memory API caches and rate-limit cooldown state (helpful in tests).
+ */
+export function clearApiCaches() {
+  aicPoolCache.clear();
+  metIdPoolCache.clear();
+  aicCooldownUntil = 0;
+}
+
+export function isAicCoolingDown(now = Date.now()) {
+  return now < aicCooldownUntil;
+}
+
+function noteAicError(err, now = Date.now()) {
+  if (err?.status === 429) {
+    aicCooldownUntil = now + AIC_RATE_LIMIT_COOLDOWN_MS;
+  }
+}
 
 /**
  * Fetch JSON with an explicit timeout and no custom non-CORS-safelisted headers.
@@ -97,25 +125,78 @@ function shuffle(list) {
   return copy;
 }
 
+function poolKey(catId, highlightsOnly) {
+  return `${catId}:${highlightsOnly ? 'hi' : 'all'}`;
+}
+
 /**
  * Fetches a single authoritative AIC artwork record by ID.
  */
 export async function fetchAicArtworkById(id, options = {}) {
   const url = `${API_ENDPOINTS.AIC_BASE}/artworks/${id}?fields=${AIC_DETAIL_FIELDS}`;
-  const json = await fetchJson(url, options);
-  return normalizeAicArtwork(json?.data, json?.config?.iiif_url);
+  try {
+    const json = await fetchJson(url, options);
+    return normalizeAicArtwork(json?.data, json?.config?.iiif_url);
+  } catch (err) {
+    noteAicError(err);
+    throw err;
+  }
+}
+
+/**
+ * Batch-fetches multiple authoritative AIC artwork records in a single request
+ * using AIC's official `?ids=` multi-ID parameter.
+ */
+export async function fetchAicArtworksByIds(ids, options = {}) {
+  const cleanIds = Array.from(new Set(ids.filter(Boolean))).slice(0, AIC_BATCH_SIZE);
+  if (cleanIds.length === 0) return [];
+  const url = `${API_ENDPOINTS.AIC_BASE}/artworks?ids=${cleanIds.join(',')}&fields=${AIC_DETAIL_FIELDS}`;
+  try {
+    const json = await fetchJson(url, options);
+    const iiifBase = json?.config?.iiif_url;
+    const rows = Array.isArray(json?.data) ? json.data : [];
+    return rows.map((row) => normalizeAicArtwork(row, iiifBase)).filter(Boolean);
+  } catch (err) {
+    noteAicError(err);
+    throw err;
+  }
+}
+
+/**
+ * Pops a cached, unseen AIC artwork matching any enabled category (0 API calls).
+ */
+function popCachedAicArtwork(enabledCats, highlightsOnly, recentSet) {
+  const enabledSet = new Set(enabledCats);
+  for (const catId of shuffle(enabledCats)) {
+    const key = poolKey(catId, highlightsOnly);
+    const bucket = aicPoolCache.get(key);
+    if (!bucket || bucket.length === 0) continue;
+
+    while (bucket.length > 0) {
+      const candidate = bucket.pop();
+      if (candidate && !recentSet.has(candidate.uid) && enabledSet.has(candidate.category)) {
+        return candidate;
+      }
+    }
+    aicPoolCache.delete(key);
+  }
+  return null;
 }
 
 /**
  * Fetches a random artwork from the Art Institute of Chicago matching the user's
- * enabled categories and highlight preference.
+ * enabled categories and highlight preference. Reuses cached batched pools whenever possible.
  */
 export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
   const enabledCats = getEnabledCategories(settings);
   if (enabledCats.length === 0) return null;
   const enabledCatSet = new Set(enabledCats);
 
-  // Always make up to 3 attempts even if only one category is enabled.
+  // 1. Serve instantly from our pre-batched session cache if available (0 network calls).
+  const cached = popCachedAicArtwork(enabledCats, settings.highlightsOnly, recentSet);
+  if (cached) return cached;
+
+  // 2. Otherwise refill a category bucket with 1 search call + 1 batched `?ids=` detail call.
   const catSequence = [];
   const shuffled = shuffle(enabledCats);
   for (let i = 0; i < 3; i++) {
@@ -123,12 +204,14 @@ export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
   }
 
   for (let attemptIdx = 0; attemptIdx < catSequence.length; attemptIdx++) {
-    const cat = CATEGORY_BY_ID.get(catSequence[attemptIdx]);
+    if (isAicCoolingDown()) return null;
+
+    const catId = catSequence[attemptIdx];
+    const cat = CATEGORY_BY_ID.get(catId);
     if (!cat) continue;
 
     const queryTerm = pickRandom(cat.aicQueries);
     const maxPage = settings.highlightsOnly ? 4 : 16;
-    // Use page 1 on the final retry to guarantee strongest category matches.
     const page = attemptIdx === catSequence.length - 1 ? 1 : 1 + Math.floor(Math.random() * maxPage);
 
     const searchUrl =
@@ -139,7 +222,9 @@ export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
     let searchJson;
     try {
       searchJson = await fetchJson(searchUrl, options);
-    } catch {
+    } catch (err) {
+      noteAicError(err);
+      if (isAicCoolingDown()) return null;
       continue;
     }
 
@@ -152,24 +237,51 @@ export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
 
     if (matching.length === 0) continue;
 
-    // When highlightsOnly is enabled, prefer works with curatorial wall labels or currently on view.
     let pool = matching;
     if (settings.highlightsOnly) {
       const rich = matching.filter((item) => item.description || item.short_description || item.is_on_view);
       if (rich.length > 0) pool = rich;
     }
 
-    const candidates = shuffle(pool).slice(0, 4);
-    for (const candidate of candidates) {
-      try {
-        const detailed = await fetchAicArtworkById(candidate.id, options);
-        if (detailed && enabledCatSet.has(detailed.category)) {
-          return detailed;
+    const batchIds = shuffle(pool).slice(0, AIC_BATCH_SIZE).map((item) => item.id);
+
+    // Batch-fetch up to 10 full records in a single API call.
+    let detailedBatch = [];
+    try {
+      detailedBatch = await fetchAicArtworksByIds(batchIds, options);
+    } catch {
+      if (isAicCoolingDown()) return null;
+      // Graceful single-ID fallback if batch endpoint fails transiently.
+      for (const id of batchIds.slice(0, 3)) {
+        try {
+          const one = await fetchAicArtworkById(id, options);
+          if (one) detailedBatch.push(one);
+          if (detailedBatch.length > 0) break;
+        } catch {
+          if (isAicCoolingDown()) return null;
         }
-      } catch {
-        // Try next candidate
       }
     }
+
+    const validWorks = shuffle(
+      detailedBatch.filter((work) => work && !recentSet.has(work.uid) && enabledCatSet.has(work.category))
+    );
+
+    if (validWorks.length === 0) continue;
+
+    const chosen = validWorks.pop();
+
+    // Store remaining works into their respective category caches for future skips / filter tests.
+    for (const extra of validWorks) {
+      const k = poolKey(extra.category, settings.highlightsOnly);
+      const list = aicPoolCache.get(k) || [];
+      if (!list.some((w) => w.uid === extra.uid)) {
+        list.push(extra);
+        aicPoolCache.set(k, list);
+      }
+    }
+
+    return chosen;
   }
 
   return null;
@@ -204,7 +316,7 @@ export async function fetchMetArtworkById(objectId, options = {}) {
 
 /**
  * Fetches a random artwork from The Metropolitan Museum of Art matching the user's
- * enabled categories and highlight preference.
+ * enabled categories and highlight preference. Reuses cached search objectIDs per bucket.
  */
 export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
   const enabledCats = getEnabledCategories(settings);
@@ -221,42 +333,52 @@ export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
     const cat = CATEGORY_BY_ID.get(catId);
     if (!cat) continue;
 
-    const departmentId = pickRandom(cat.metDepartments);
-    const queryTerm = pickRandom(cat.metQueries);
+    const key = poolKey(catId, settings.highlightsOnly);
+    let cachedIds = metIdPoolCache.get(key) || [];
+    cachedIds = cachedIds.filter((id) => !recentSet.has(`met:${id}`));
 
-    // Try with highlight filter first when requested, falling back cleanly if sparse.
-    const attempts = settings.highlightsOnly
-      ? [
-          { departmentId, medium: cat.metMedium, isHighlight: true, q: queryTerm },
-          { departmentId, medium: null, isHighlight: true, q: 'a' },
-          { departmentId, medium: cat.metMedium, isHighlight: false, q: queryTerm },
-        ]
-      : [
-          { departmentId, medium: cat.metMedium, isHighlight: false, q: queryTerm },
-          { departmentId, medium: null, isHighlight: false, q: queryTerm },
-        ];
+    // Refill the cached ID pool only when depleted, avoiding redundant /v1.1/search calls.
+    if (cachedIds.length < 6) {
+      const departmentId = pickRandom(cat.metDepartments);
+      const queryTerm = pickRandom(cat.metQueries);
 
-    let objectIds = [];
-    for (const attempt of attempts) {
-      try {
-        const searchUrl = buildMetSearchUrl({ ...attempt, limit: 250, offset: 0 });
-        const json = await fetchJson(searchUrl, options);
-        if (Array.isArray(json?.objectIDs) && json.objectIDs.length > 0) {
-          objectIds = json.objectIDs;
-          break;
+      const attempts = settings.highlightsOnly
+        ? [
+            { departmentId, medium: cat.metMedium, isHighlight: true, q: queryTerm },
+            { departmentId, medium: null, isHighlight: true, q: 'a' },
+            { departmentId, medium: cat.metMedium, isHighlight: false, q: queryTerm },
+          ]
+        : [
+            { departmentId, medium: cat.metMedium, isHighlight: false, q: queryTerm },
+            { departmentId, medium: null, isHighlight: false, q: queryTerm },
+          ];
+
+      for (const attempt of attempts) {
+        try {
+          const searchUrl = buildMetSearchUrl({ ...attempt, limit: 250, offset: 0 });
+          const json = await fetchJson(searchUrl, options);
+          if (Array.isArray(json?.objectIDs) && json.objectIDs.length > 0) {
+            const fresh = json.objectIDs.filter((id) => !recentSet.has(`met:${id}`));
+            const merged = Array.from(new Set([...cachedIds, ...(fresh.length > 0 ? fresh : json.objectIDs)]));
+            cachedIds = shuffle(merged);
+            metIdPoolCache.set(key, cachedIds);
+            break;
+          }
+        } catch {
+          // Try next search variant
         }
-      } catch {
-        // Try next search variant
       }
     }
 
-    if (objectIds.length === 0) continue;
+    if (cachedIds.length === 0) continue;
 
-    // Sample candidate IDs, avoiding recently viewed items and handling occasional 404 / empty-image records.
-    const freshIds = objectIds.filter((id) => !recentSet.has(`met:${id}`));
-    const sample = shuffle(freshIds.length > 0 ? freshIds : objectIds).slice(0, 10);
+    // Probe up to 10 IDs, popping each tried ID so bad/404 IDs are never retried.
+    const maxProbes = Math.min(10, cachedIds.length);
+    for (let p = 0; p < maxProbes; p++) {
+      const objectId = cachedIds.pop();
+      metIdPoolCache.set(key, cachedIds);
+      if (objectId == null || recentSet.has(`met:${objectId}`)) continue;
 
-    for (const objectId of sample) {
       try {
         const artwork = await fetchMetArtworkById(objectId, options);
         if (artwork && artwork.imageUrls.length > 0 && enabledCatSet.has(artwork.category)) {
@@ -273,16 +395,22 @@ export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
 
 /**
  * Selects and fetches the next artwork across enabled museums, alternating gently
- * away from the previously shown museum when both are enabled.
+ * away from the previously shown museum when both are enabled and routing around
+ * AIC temporarily if AIC is in HTTP 429 cooldown.
  */
 export async function fetchNextArtwork(settings, recentIds = [], lastSource = null, options = {}) {
   const recentSet = new Set(recentIds);
   const enabledMuseums = getEnabledMuseums(settings);
 
-  // Order enabled museums: gently prefer the other museum for natural variety.
+  // Order enabled museums: gently prefer the other museum for variety,
+  // and deprioritize AIC if it recently signaled HTTP 429.
   let museumOrder = shuffle(enabledMuseums);
-  if (museumOrder.length > 1 && lastSource && museumOrder[0] === lastSource && Math.random() < 0.72) {
-    museumOrder = [museumOrder[1], museumOrder[0]];
+  if (museumOrder.length > 1) {
+    if (isAicCoolingDown()) {
+      museumOrder = ['met', 'aic'];
+    } else if (lastSource && museumOrder[0] === lastSource && Math.random() < 0.72) {
+      museumOrder = [museumOrder[1], museumOrder[0]];
+    }
   }
 
   for (const museumId of museumOrder) {
@@ -300,6 +428,7 @@ export async function fetchNextArtwork(settings, recentIds = [], lastSource = nu
   // Last-resort verified fallback IDs (respecting enabled museums & categories when possible).
   const enabledCatSet = new Set(getEnabledCategories(settings));
   for (const museumId of museumOrder) {
+    if (museumId === 'aic' && isAicCoolingDown()) continue;
     const candidates = shuffle(VERIFIED_FALLBACK_IDS[museumId] || []);
     const preferred = candidates.filter((c) => enabledCatSet.has(c.category));
     const pool = preferred.length > 0 ? preferred : candidates;

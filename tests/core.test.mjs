@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { MAX_SKIPS_PER_HOUR, STORAGE_KEYS } from '../js/config.js';
 import {
   formatCountdown,
   getCurrentHourKey,
@@ -9,6 +10,9 @@ import {
 } from '../js/clock.js';
 import {
   canSkipInHour,
+  getFilterSignature,
+  getSkipsRemainingInHour,
+  getSkipsUsedInHour,
   loadGalleryState,
   loadSettings,
   normalizeSettings,
@@ -26,9 +30,11 @@ import {
 } from '../js/classify.js';
 import {
   buildMetSearchUrl,
+  clearApiCaches,
   enrichArtworkContext,
   extractWikidataId,
   fetchNextArtwork,
+  isAicCoolingDown,
 } from '../js/api.js';
 
 function createMemoryStorage() {
@@ -61,10 +67,9 @@ test('clock utilities compute stable local hour keys and exact :00 rollover', ()
   assert.equal(formatCountdown(12 * 60_000), '12m');
 });
 
-test('storage enforces valid settings and 1-skip-per-hour lock', () => {
+test('storage enforces valid settings, filter signatures, 5 skips/hr, and legacy migration', () => {
   const store = createMemoryStorage();
 
-  // Attempting to disable all museums or all categories restores safe defaults
   const sanitized = normalizeSettings({
     framing: 'invalid',
     museums: { aic: false, met: false },
@@ -82,37 +87,85 @@ test('storage enforces valid settings and 1-skip-per-hour lock', () => {
   assert.equal(sanitized.museums.met, true);
   assert.equal(sanitized.categories.paintings, true);
 
+  // Filter signature ignores framing changes but catches curatorial filter changes
+  const sigAmbient = getFilterSignature({ ...sanitized, framing: 'ambient' });
+  const sigMatte = getFilterSignature({ ...sanitized, framing: 'matte' });
+  const sigOnlyAic = getFilterSignature({ ...sanitized, museums: { aic: true, met: false } });
+  assert.equal(sigAmbient, sigMatte);
+  assert.notEqual(sigAmbient, sigOnlyAic);
+
   saveSettings({ ...sanitized, framing: 'matte', highlightsOnly: false }, store);
   const loadedSettings = loadSettings(store);
   assert.equal(loadedSettings.framing, 'matte');
   assert.equal(loadedSettings.highlightsOnly, false);
 
-  // Hourly skip lifecycle
+  // Counted 5 skips per hour lifecycle
+  assert.equal(MAX_SKIPS_PER_HOUR, 5);
   let state = loadGalleryState(store);
-  assert.equal(canSkipInHour(state, '2026-11-20T15'), true);
+  assert.equal(getSkipsRemainingInHour(state, '2026-11-20T15'), 5);
 
+  // Initial hourly artwork does not consume a skip
   state = recordDisplayedArtwork(
     state,
     { uid: 'aic:16568', title: 'Water Lilies' },
     '2026-11-20T15',
     { consumedSkip: false }
   );
+  assert.equal(getSkipsUsedInHour(state, '2026-11-20T15'), 0);
+
+  // Use 4 skips
+  for (let i = 1; i <= 4; i++) {
+    state = recordDisplayedArtwork(
+      state,
+      { uid: `met:${436520 + i}`, title: `Work ${i}` },
+      '2026-11-20T15',
+      { consumedSkip: true }
+    );
+  }
+  assert.equal(getSkipsUsedInHour(state, '2026-11-20T15'), 4);
+  assert.equal(getSkipsRemainingInHour(state, '2026-11-20T15'), 1);
   assert.equal(canSkipInHour(state, '2026-11-20T15'), true);
 
-  // Consume the single hourly skip
+  // Filter preview does NOT consume the remaining skip
   state = recordDisplayedArtwork(
     state,
-    { uid: 'met:436524', title: 'Sunflowers' },
+    { uid: 'aic:27992', title: 'La Grande Jatte' },
+    '2026-11-20T15',
+    { consumedSkip: false }
+  );
+  assert.equal(getSkipsRemainingInHour(state, '2026-11-20T15'), 1);
+
+  // Consume 5th and final skip
+  state = recordDisplayedArtwork(
+    state,
+    { uid: 'aic:28560', title: 'The Bedroom' },
     '2026-11-20T15',
     { consumedSkip: true }
   );
   saveGalleryState(state, store);
 
   const reloaded = loadGalleryState(store);
+  assert.equal(getSkipsRemainingInHour(reloaded, '2026-11-20T15'), 0);
   assert.equal(canSkipInHour(reloaded, '2026-11-20T15'), false);
-  // Resets cleanly on the next clock hour
+
+  // Resets cleanly back to 5 on the next clock hour
+  assert.equal(getSkipsRemainingInHour(reloaded, '2026-11-20T16'), 5);
   assert.equal(canSkipInHour(reloaded, '2026-11-20T16'), true);
-  assert.deepEqual(reloaded.recentIds, ['aic:16568', 'met:436524']);
+
+  // Legacy single-skip state migrates cleanly to 1 used skip (4 remaining)
+  const legacyStore = createMemoryStorage();
+  legacyStore.setItem(
+    STORAGE_KEYS.STATE,
+    JSON.stringify({
+      hourKey: '2026-11-20T15',
+      artwork: { uid: 'aic:16568' },
+      skippedHourKey: '2026-11-20T15',
+      recentIds: ['aic:16568'],
+    })
+  );
+  const migrated = loadGalleryState(legacyStore);
+  assert.equal(getSkipsUsedInHour(migrated, '2026-11-20T15'), 1);
+  assert.equal(getSkipsRemainingInHour(migrated, '2026-11-20T15'), 4);
 });
 
 test('artwork classification and normalization handle both AIC and Met records', () => {
@@ -181,8 +234,6 @@ test('artwork classification and normalization handle both AIC and Met records',
   assert.equal(metNormalized.needsContextEnrichment, true);
   assert.equal(metNormalized.galleryLocation, 'On view · Gallery 825');
   assert.deepEqual(metNormalized.tags, ['Sunflowers', 'Flowers']);
-
-  // Empty Met primaryImage should return null
   assert.equal(normalizeMetArtwork({ objectID: 999, primaryImage: '', primaryImageSmall: '' }), null);
 });
 
@@ -193,7 +244,6 @@ test('HTML sanitizer strips scripts and dangerous attributes while preserving em
   assert.ok(!clean.includes('onclick'));
   assert.ok(!clean.includes('javascript:'));
   assert.equal(clean, '<p>Hello <em>Art</em> Link</p>');
-
   assert.equal(buildAicImageUrls('').length, 0);
 });
 
@@ -211,7 +261,127 @@ test('Met v1.1 search URL builder places q strictly last and uses v1.1', () => {
   assert.ok(url.endsWith('&q=sunflowers'));
 });
 
-test('fetchNextArtwork handles Met 404 IDs, cross-museum fallback, and Wikipedia enrichment', async () => {
+test('AIC client batches ?ids= detail fetches and serves subsequent skips from pool cache with 0 API calls', async () => {
+  clearApiCaches();
+
+  const aicOnly = normalizeSettings({
+    museums: { aic: true, met: false },
+    categories: {
+      paintings: true,
+      'works-on-paper': false,
+      photography: false,
+      sculpture: false,
+      decorative: false,
+      artifacts: false,
+    },
+  });
+
+  let networkCalls = 0;
+  let sawBatchIdsCall = false;
+
+  const mockFetch = async (url) => {
+    networkCalls++;
+    if (url.includes('/artworks/search')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: [
+            { id: 16568, title: 'Water Lilies', image_id: 'img-1', artwork_type_title: 'Painting', is_on_view: true },
+            { id: 27992, title: 'La Grande Jatte', image_id: 'img-2', artwork_type_title: 'Painting', is_on_view: true },
+            { id: 28560, title: 'The Bedroom', image_id: 'img-3', artwork_type_title: 'Painting', is_on_view: true },
+          ],
+        }),
+      };
+    }
+    if (url.includes('/artworks?ids=')) {
+      sawBatchIdsCall = true;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          config: { iiif_url: 'https://www.artic.edu/iiif/2' },
+          data: [
+            { id: 16568, title: 'Water Lilies', artist_title: 'Monet', image_id: 'img-1', artwork_type_title: 'Painting' },
+            { id: 27992, title: 'La Grande Jatte', artist_title: 'Seurat', image_id: 'img-2', artwork_type_title: 'Painting' },
+            { id: 28560, title: 'The Bedroom', artist_title: 'Van Gogh', image_id: 'img-3', artwork_type_title: 'Painting' },
+          ],
+        }),
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+
+  const first = await fetchNextArtwork(aicOnly, [], null, { fetchImpl: mockFetch });
+  assert.ok(first.uid.startsWith('aic:'));
+  assert.equal(sawBatchIdsCall, true);
+  assert.equal(networkCalls, 2); // 1 search + 1 batched ?ids= call
+
+  // 2nd and 3rd skips should come straight from the cached pool with 0 extra requests!
+  const second = await fetchNextArtwork(aicOnly, [first.uid], 'aic', { fetchImpl: mockFetch });
+  const third = await fetchNextArtwork(aicOnly, [first.uid, second.uid], 'aic', { fetchImpl: mockFetch });
+  assert.notEqual(second.uid, first.uid);
+  assert.notEqual(third.uid, first.uid);
+  assert.notEqual(third.uid, second.uid);
+  assert.equal(networkCalls, 2);
+});
+
+test('AIC HTTP 429 triggers cooldown and routes seamlessly to The Met', async () => {
+  clearApiCaches();
+
+  const bothSettings = normalizeSettings({
+    museums: { aic: true, met: true },
+    categories: {
+      paintings: true,
+      'works-on-paper': false,
+      photography: false,
+      sculpture: false,
+      decorative: false,
+      artifacts: false,
+    },
+  });
+
+  let aicCalls = 0;
+  const mockFetch = async (url) => {
+    if (url.includes('api.artic.edu')) {
+      aicCalls++;
+      return { ok: false, status: 429, json: async () => ({ error: 'Too Many Requests' }) };
+    }
+    if (url.includes('/v1.1/search')) {
+      return { ok: true, status: 200, json: async () => ({ total: 2, objectIDs: [436524, 436528] }) };
+    }
+    if (url.endsWith('/v1/objects/436524') || url.endsWith('/v1/objects/436528')) {
+      const id = Number(url.split('/').pop());
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          objectID: id,
+          title: id === 436524 ? 'Sunflowers' : 'Irises',
+          artistDisplayName: 'Vincent van Gogh',
+          department: 'European Paintings',
+          classification: 'Paintings',
+          primaryImage: `https://images.metmuseum.org/${id}.jpg`,
+        }),
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+
+  // Pass lastSource='met' so AIC is tried first (or if Met tried first, force AIC 429 directly)
+  const aicOnly = normalizeSettings({ ...bothSettings, museums: { aic: true, met: false } });
+  await assert.rejects(() => fetchNextArtwork(aicOnly, [], null, { fetchImpl: mockFetch }));
+  assert.equal(isAicCoolingDown(), true);
+
+  const callsBeforeCooldownRoute = aicCalls;
+  const routed = await fetchNextArtwork(bothSettings, [], 'met', { fetchImpl: mockFetch });
+  assert.equal(routed.source, 'met');
+  assert.equal(aicCalls, callsBeforeCooldownRoute); // AIC was skipped while cooling down!
+});
+
+test('Met client caches search objectIDs, skips 404 IDs, and enriches via Wikipedia', async () => {
+  clearApiCaches();
+
   const metSettings = normalizeSettings({
     museums: { aic: false, met: true },
     categories: {
@@ -224,28 +394,31 @@ test('fetchNextArtwork handles Met 404 IDs, cross-museum fallback, and Wikipedia
     },
   });
 
+  let searchCalls = 0;
   const mockFetch = async (url) => {
     if (url.includes('/v1.1/search')) {
+      searchCalls++;
       return {
         ok: true,
         status: 200,
-        json: async () => ({ total: 2, objectIDs: [999999, 436524] }),
+        json: async () => ({ total: 8, objectIDs: [999999, 436524, 436528, 437133, 437881, 435809, 436819, 437394] }),
       };
     }
     if (url.endsWith('/v1/objects/999999')) {
       return { ok: false, status: 404, json: async () => ({ message: 'Not a valid object' }) };
     }
-    if (url.endsWith('/v1/objects/436524')) {
+    if (url.includes('/v1/objects/')) {
+      const id = Number(url.split('/').pop());
       return {
         ok: true,
         status: 200,
         json: async () => ({
-          objectID: 436524,
-          title: 'Sunflowers',
+          objectID: id,
+          title: `Painting ${id}`,
           artistDisplayName: 'Vincent van Gogh',
           department: 'European Paintings',
           classification: 'Paintings',
-          primaryImage: 'https://images.metmuseum.org/sunflowers.jpg',
+          primaryImage: `https://images.metmuseum.org/${id}.jpg`,
           objectWikidata_URL: 'https://www.wikidata.org/wiki/Q18915137',
         }),
       };
@@ -276,11 +449,18 @@ test('fetchNextArtwork handles Met 404 IDs, cross-museum fallback, and Wikipedia
     return { ok: false, status: 404, json: async () => ({}) };
   };
 
-  const artwork = await fetchNextArtwork(metSettings, [], null, { fetchImpl: mockFetch });
-  assert.equal(artwork.uid, 'met:436524');
-  assert.equal(extractWikidataId(artwork.objectWikidataUrl), 'Q18915137');
+  const first = await fetchNextArtwork(metSettings, [], null, { fetchImpl: mockFetch });
+  assert.equal(first.source, 'met');
+  assert.equal(searchCalls, 1);
 
-  const context = await enrichArtworkContext(artwork, { fetchImpl: mockFetch });
+  // Second Met fetch reuses cached objectID pool without calling /v1.1/search again!
+  const second = await fetchNextArtwork(metSettings, [first.uid], 'met', { fetchImpl: mockFetch });
+  assert.equal(second.source, 'met');
+  assert.notEqual(second.uid, first.uid);
+  assert.equal(searchCalls, 1);
+
+  assert.equal(extractWikidataId(first.objectWikidataUrl), 'Q18915137');
+  const context = await enrichArtworkContext(first, { fetchImpl: mockFetch });
   assert.ok(context.descriptionHtml.includes('Vincent van Gogh'));
   assert.equal(context.descriptionSource.label, 'Historical Context · Wikipedia');
 });

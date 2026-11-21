@@ -5,9 +5,12 @@
 
 import {
   ART_CATEGORIES,
+  FILTER_APPLY_COOLDOWN_MS,
   FRAMING_MODES,
   IDLE_TIMEOUT_MS,
+  MAX_SKIPS_PER_HOUR,
   MUSEUMS,
+  SKIP_COOLDOWN_MS,
 } from './config.js';
 import {
   formatCountdown,
@@ -18,6 +21,8 @@ import {
 } from './clock.js';
 import {
   canSkipInHour,
+  getFilterSignature,
+  getSkipsRemainingInHour,
   loadGalleryState,
   loadSettings,
   recordDisplayedArtwork,
@@ -68,6 +73,7 @@ const dom = {
   menuCountdown: document.getElementById('menu-countdown'),
   skipBtn: document.getElementById('skip-btn'),
   skipBtnLabel: document.getElementById('skip-btn-label'),
+  skipPips: document.getElementById('skip-pips'),
   skipHint: document.getElementById('skip-hint'),
   framingButtons: Array.from(document.querySelectorAll('[data-framing-option]')),
   fullscreenBtn: document.getElementById('fullscreen-btn'),
@@ -75,19 +81,26 @@ const dom = {
   museumToggles: document.getElementById('museum-toggles'),
   categoryToggles: document.getElementById('category-toggles'),
   toggleHighlights: document.getElementById('toggle-highlights'),
+  applyFiltersBtn: document.getElementById('apply-filters-btn'),
+  applyFiltersLabel: document.getElementById('apply-filters-label'),
+  filterApplyHint: document.getElementById('filter-apply-hint'),
 
   toast: document.getElementById('toast'),
 };
 
 let settings = loadSettings();
 let galleryState = loadGalleryState();
+let appliedFilterSignature = getFilterSignature(settings);
 let activeOverlay = null; // 'info' | 'menu' | null
 let isLoadingArtwork = false;
 let loadRequestId = 0;
 let idleTimer = null;
 let hourTimer = null;
 let clockInterval = null;
+let cooldownTimer = null;
 let toastTimer = null;
+let skipCooldownUntil = 0;
+let filterCooldownUntil = 0;
 
 /* ==========================================================================
    Toast & Status Helpers
@@ -110,6 +123,18 @@ function setStageStatus(mode, message = '') {
   dom.stageStatus.dataset.mode = mode;
   dom.statusLabel.textContent = message;
   dom.stageStatus.classList.add('is-visible');
+}
+
+function scheduleCooldownRefresh() {
+  clearTimeout(cooldownTimer);
+  const now = Date.now();
+  const nextUnlock = Math.max(skipCooldownUntil, filterCooldownUntil);
+  if (nextUnlock > now) {
+    cooldownTimer = setTimeout(() => {
+      updateClockUI();
+      updateFilterApplyUI();
+    }, nextUnlock - now + 60);
+  }
 }
 
 /* ==========================================================================
@@ -150,6 +175,7 @@ function openOverlay(which) {
   dom.menuTrigger.setAttribute('aria-expanded', String(isMenu));
 
   updateClockUI();
+  updateFilterApplyUI();
   const focusTarget = isInfo ? dom.infoCloseBtn : dom.menuCloseBtn;
   setTimeout(() => focusTarget?.focus({ preventScroll: true }), 120);
 }
@@ -187,6 +213,9 @@ function selectMenuTab(tabName) {
   for (const panel of dom.menuPanels) {
     const active = panel.id === `panel-${tabName}`;
     panel.classList.toggle('is-active', active);
+  }
+  if (tabName === 'settings') {
+    updateFilterApplyUI();
   }
 }
 
@@ -228,8 +257,34 @@ async function toggleFullscreen() {
 }
 
 /* ==========================================================================
-   Filter Settings Rendering & Handlers
+   Filter Settings Rendering & Apply Refresh Control
    ========================================================================== */
+
+function hasPendingFilterChanges() {
+  return getFilterSignature(settings) !== appliedFilterSignature;
+}
+
+function updateFilterApplyUI() {
+  const pending = hasPendingFilterChanges();
+  const now = Date.now();
+  const inCooldown = now < filterCooldownUntil;
+
+  dom.applyFiltersBtn.disabled = !pending || isLoadingArtwork || inCooldown;
+
+  if (isLoadingArtwork) {
+    dom.applyFiltersLabel.textContent = 'Loading…';
+    dom.filterApplyHint.textContent = 'Fetching a matching work from the archives';
+  } else if (pending && inCooldown) {
+    dom.applyFiltersLabel.textContent = 'Apply & Refresh Artwork';
+    dom.filterApplyHint.textContent = 'Ready in a moment…';
+  } else if (pending) {
+    dom.applyFiltersLabel.textContent = 'Apply & Refresh Artwork';
+    dom.filterApplyHint.textContent = 'Loads a matching work immediately — doesn’t use a skip.';
+  } else {
+    dom.applyFiltersLabel.textContent = 'Filters Active';
+    dom.filterApplyHint.textContent = 'Toggle any museum or art type to preview matching art without using a skip.';
+  }
+}
 
 function createToggleRow({ id, title, desc, checked, onChange }) {
   const label = document.createElement('label');
@@ -277,7 +332,7 @@ function renderFilterSettings() {
             return;
           }
           settings = saveSettings({ ...settings, museums: nextMuseums });
-          showToast('Saved — applies next hour or skip');
+          updateFilterApplyUI();
         },
       })
     );
@@ -299,13 +354,14 @@ function renderFilterSettings() {
             return;
           }
           settings = saveSettings({ ...settings, categories: nextCats });
-          showToast('Saved — applies next hour or skip');
+          updateFilterApplyUI();
         },
       })
     );
   }
 
   dom.toggleHighlights.checked = Boolean(settings.highlightsOnly);
+  updateFilterApplyUI();
 }
 
 /* ==========================================================================
@@ -387,10 +443,8 @@ function renderArtworkMetadata(artwork, { loadingContext = false } = {}) {
     dom.infoMetaGrid.append(wrap);
   }
 
-  // Art history & curatorial context
   renderHistoryBlock(artwork, loadingContext);
 
-  // Subject tags
   dom.infoTags.innerHTML = '';
   if (Array.isArray(artwork.tags) && artwork.tags.length > 0) {
     for (const tag of artwork.tags) {
@@ -404,7 +458,6 @@ function renderArtworkMetadata(artwork, { loadingContext = false } = {}) {
     dom.infoTags.hidden = true;
   }
 
-  // Footer attribution & museum catalog link
   dom.infoCredit.textContent = artwork.creditLine || `Collection of ${artwork.museumName}.`;
   dom.infoMuseumLink.href = artwork.museumUrl || '#';
   dom.infoMuseumLink.querySelector('span').textContent = `View at ${artwork.museumShort || 'Museum'}`;
@@ -462,12 +515,10 @@ async function presentArtwork(artwork, { requestId }) {
   dom.artworkImage.alt = artwork.altText || artwork.title;
   dom.artworkImage.src = resolvedUrl;
   dom.artworkImage.classList.remove('is-lqip');
-  // Force clean fade-in transition on the next animation frame.
   requestAnimationFrame(() => {
     dom.artworkImage.classList.add('is-visible');
   });
 
-  // Update ambient blurred backdrop cleanly.
   dom.ambientImage.classList.remove('is-visible');
   dom.ambientImage.referrerPolicy = 'no-referrer';
   dom.ambientImage.src = resolvedUrl;
@@ -503,7 +554,7 @@ async function presentArtwork(artwork, { requestId }) {
 }
 
 /* ==========================================================================
-   Hourly Load & 1-Skip-Per-Hour Flow
+   Hourly Load, 5-Skip-Per-Hour Flow, and Filter Preview Flow
    ========================================================================== */
 
 async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
@@ -516,16 +567,20 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
   const statusText =
     reason === 'skip'
       ? 'Curating another piece…'
-      : reason === 'retry'
-        ? 'Connecting to museum collections…'
-        : 'Selecting this hour’s work…';
+      : reason === 'filter'
+        ? 'Finding a piece matching your filters…'
+        : reason === 'retry'
+          ? 'Connecting to museum collections…'
+          : 'Selecting this hour’s work…';
 
   dom.artworkImage.classList.remove('is-visible');
   setStageStatus('loading', statusText);
   updateClockUI();
+  updateFilterApplyUI();
 
   const recentIds = [...galleryState.recentIds];
   const lastSource = galleryState.artwork?.source || null;
+  const requestedSignature = getFilterSignature(settings);
 
   try {
     let loaded = false;
@@ -543,6 +598,7 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
             consumedSkip: consumeSkip,
           })
         );
+        appliedFilterSignature = requestedSignature;
         loaded = true;
       } catch (imgErr) {
         lastError = imgErr;
@@ -555,16 +611,32 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
     }
 
     if (reason === 'skip') {
-      showToast('Artwork skipped — 0 skips left this hour');
+      skipCooldownUntil = Date.now() + SKIP_COOLDOWN_MS;
+      scheduleCooldownRefresh();
+      const remaining = getSkipsRemainingInHour(galleryState, hourKey);
+      if (remaining === 0) {
+        showToast(`Last skip used — resets at ${formatHourLabel(getNextHourDate())}`);
+      } else {
+        showToast(`${remaining} ${remaining === 1 ? 'skip' : 'skips'} left this hour`);
+      }
+    } else if (reason === 'filter') {
+      filterCooldownUntil = Date.now() + FILTER_APPLY_COOLDOWN_MS;
+      scheduleCooldownRefresh();
+      showToast('Filters applied — hourly skips unchanged');
     } else if (reason === 'top-of-hour') {
       showToast(`New hour · ${formatHourLabel(new Date())}`);
     }
   } catch (err) {
     if (requestId !== loadRequestId) return;
-    if (reason === 'skip' && hadVisibleArtwork) {
+    if ((reason === 'skip' || reason === 'filter') && hadVisibleArtwork) {
       dom.artworkImage.classList.add('is-visible');
       setStageStatus('hidden');
-      showToast('Couldn’t reach museums — your hourly skip wasn’t used', 3400);
+      showToast(
+        reason === 'skip'
+          ? 'Couldn’t reach museums — your skip wasn’t used'
+          : 'Couldn’t reach museums right now — try applying again',
+        3400
+      );
     } else {
       setStageStatus(
         'error',
@@ -575,6 +647,7 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
     if (requestId === loadRequestId) {
       isLoadingArtwork = false;
       updateClockUI();
+      updateFilterApplyUI();
     }
   }
 }
@@ -582,18 +655,35 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
 async function handleSkip() {
   const hourKey = getCurrentHourKey();
   if (isLoadingArtwork) return;
+  if (Date.now() < skipCooldownUntil) return;
   if (!canSkipInHour(galleryState, hourKey)) {
     const nextLabel = formatHourLabel(getNextHourDate());
-    showToast(`Skip already used — resets at ${nextLabel}`);
+    showToast(`All ${MAX_SKIPS_PER_HOUR} skips used — resets at ${nextLabel}`);
     return;
   }
   closeOverlays();
   await loadFreshArtwork({ reason: 'skip', consumeSkip: true });
 }
 
+async function handleApplyFilters() {
+  if (isLoadingArtwork) return;
+  if (!hasPendingFilterChanges() || Date.now() < filterCooldownUntil) return;
+  closeOverlays();
+  await loadFreshArtwork({ reason: 'filter', consumeSkip: false });
+}
+
 /* ==========================================================================
    Clock & Top-of-the-Hour (:00) Scheduler
    ========================================================================== */
+
+function renderSkipPips(remaining) {
+  dom.skipPips.innerHTML = '';
+  for (let i = 0; i < MAX_SKIPS_PER_HOUR; i++) {
+    const pip = document.createElement('span');
+    pip.className = i < remaining ? 'skip-pip' : 'skip-pip is-spent';
+    dom.skipPips.append(pip);
+  }
+}
 
 function updateClockUI() {
   const now = new Date();
@@ -608,18 +698,24 @@ function updateClockUI() {
   dom.menuCountdown.textContent = `in ${countdown}`;
   dom.infoHourBadge.textContent = `${currentLabel} Hour · Next in ${countdown}`;
 
-  const skipAvailable = canSkipInHour(galleryState, hourKey);
-  dom.skipBtn.disabled = !skipAvailable || isLoadingArtwork;
+  const remaining = getSkipsRemainingInHour(galleryState, hourKey);
+  const inCooldown = Date.now() < skipCooldownUntil;
+  renderSkipPips(remaining);
+
+  dom.skipBtn.disabled = remaining === 0 || isLoadingArtwork || inCooldown;
 
   if (isLoadingArtwork) {
     dom.skipBtnLabel.textContent = 'Loading…';
     dom.skipHint.textContent = 'Fetching from museum archives';
-  } else if (skipAvailable) {
-    dom.skipBtnLabel.textContent = 'Skip Artwork';
-    dom.skipHint.textContent = '1 skip available this hour';
-  } else {
-    dom.skipBtnLabel.textContent = 'Skip Used This Hour';
+  } else if (remaining === 0) {
+    dom.skipBtnLabel.textContent = 'No Skips Left';
     dom.skipHint.textContent = `Resets at ${nextLabel} (in ${countdown})`;
+  } else if (inCooldown) {
+    dom.skipBtnLabel.textContent = 'Skip Artwork';
+    dom.skipHint.textContent = 'Ready in a moment…';
+  } else {
+    dom.skipBtnLabel.textContent = 'Skip Artwork';
+    dom.skipHint.textContent = `${remaining} of ${MAX_SKIPS_PER_HOUR} ${remaining === 1 ? 'skip' : 'skips'} left this hour`;
   }
 }
 
@@ -670,10 +766,13 @@ function bindSwipeGestures() {
 
       if (dx > 70) return;
 
-      // Swipe up from lower portion opens info drawer.
       if (!activeOverlay && startedNearBottom && dy < -48) {
         openOverlay('info');
-      } else if (activeOverlay === 'info' && dy > 65 && dom.infoDrawer.querySelector('.info-drawer-body').scrollTop <= 2) {
+      } else if (
+        activeOverlay === 'info' &&
+        dy > 65 &&
+        dom.infoDrawer.querySelector('.info-drawer-body').scrollTop <= 2
+      ) {
         closeOverlays();
       }
     },
@@ -693,6 +792,7 @@ function bindEvents() {
   dom.scrim.addEventListener('click', closeOverlays);
 
   dom.skipBtn.addEventListener('click', handleSkip);
+  dom.applyFiltersBtn.addEventListener('click', handleApplyFilters);
   dom.statusRetryBtn.addEventListener('click', () => loadFreshArtwork({ reason: 'retry' }));
   dom.fullscreenBtn.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', updateFullscreenButton);
@@ -713,15 +813,13 @@ function bindEvents() {
       ...settings,
       highlightsOnly: dom.toggleHighlights.checked,
     });
-    showToast('Saved — applies next hour or skip');
+    updateFilterApplyUI();
   });
 
-  // Auto-dim chrome when admiring art
   ['pointermove', 'pointerdown', 'keydown'].forEach((evt) => {
     window.addEventListener(evt, wakeChrome, { passive: true });
   });
 
-  // Keyboard shortcuts
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = document.activeElement?.tagName;
@@ -738,7 +836,6 @@ function bindEvents() {
         openOverlay('info');
       }
     } else if (e.key === 'ArrowDown' && activeOverlay === 'info') {
-      e.preventDefault();
       closeOverlays();
     } else if (e.key.toLowerCase() === 'm') {
       if (activeOverlay === 'menu') {
@@ -753,7 +850,6 @@ function bindEvents() {
     }
   });
 
-  // Wake cleanly after laptop sleep or switching back from a background tab
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       checkHourBoundary();
