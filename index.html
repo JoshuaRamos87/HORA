@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=9" />
+  <link rel="stylesheet" href="./css/styles.css?v=10" />
 </head>
 <body>
   <main id="gallery-viewport" class="gallery-viewport" data-framing="ambient">
@@ -81,6 +81,18 @@
         <span></span>
       </span>
     </button>
+
+    <!-- Top-Center Archive Revisit Banner (shown only when revisiting a past/saved artwork) -->
+    <div id="archive-banner" class="archive-banner" role="status" aria-live="polite" hidden>
+      <span class="archive-banner-label">Archive</span>
+      <span class="archive-banner-dot" aria-hidden="true"></span>
+      <button id="archive-return-btn" class="archive-return-btn" type="button">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        <span>Return to Current</span>
+      </button>
+    </div>
 
     <!-- Bottom-Center Translucent Up-Arrow Trigger -->
     <div class="info-trigger-wrap">
@@ -168,11 +180,25 @@
           <span class="tag-dot" aria-hidden="true"></span>
           <span id="info-hour-badge" class="hour-tag">This Hour</span>
         </div>
-        <button id="info-close-btn" class="drawer-close-btn" type="button" aria-label="Close artwork details">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
+        <div class="drawer-header-actions">
+          <button
+            id="info-bookmark-btn"
+            class="drawer-close-btn bookmark-btn"
+            type="button"
+            aria-label="Save artwork"
+            aria-pressed="false"
+            title="Save to Archive (B)"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
+          <button id="info-close-btn" class="drawer-close-btn" type="button" aria-label="Close artwork details">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div class="info-drawer-body">
@@ -232,6 +258,7 @@
 
       <nav class="menu-tabs" role="tablist" aria-label="Menu sections">
         <button id="tab-gallery" class="menu-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-gallery" data-tab="gallery">Gallery</button>
+        <button id="tab-archive" class="menu-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-archive" data-tab="archive">Archive</button>
         <button id="tab-settings" class="menu-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Filters</button>
         <button id="tab-about" class="menu-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-about" data-tab="about">About</button>
       </nav>
@@ -307,7 +334,17 @@
           </div>
         </section>
 
-        <!-- Tab 2: Include / Exclude Collection Filters -->
+        <!-- Tab 2: Lightweight Archive (Recently Viewed & Saved Bookmarks) -->
+        <section id="panel-archive" class="menu-panel" role="tabpanel" aria-labelledby="tab-archive">
+          <div class="segmented-control segmented-two" role="group" aria-label="Archive view">
+            <button id="archive-view-recent" class="segment-btn is-active" type="button" data-archive-view="recent" aria-pressed="true">Recent</button>
+            <button id="archive-view-saved" class="segment-btn" type="button" data-archive-view="saved" aria-pressed="false">Saved</button>
+          </div>
+          <div id="archive-list" class="archive-list"></div>
+          <p id="archive-empty" class="archive-empty" hidden></p>
+        </section>
+
+        <!-- Tab 3: Include / Exclude Collection Filters -->
         <section id="panel-settings" class="menu-panel" role="tabpanel" aria-labelledby="tab-settings">
           <div class="menu-group">
             <span class="menu-group-label">Museums</span>
@@ -352,7 +389,7 @@
           </div>
         </section>
 
-        <!-- Tab 3: About -->
+        <!-- Tab 4: About -->
         <section id="panel-about" class="menu-panel" role="tabpanel" aria-labelledby="tab-about">
           <div class="about-copy">
             <p>
@@ -376,22 +413,24 @@
               <span><kbd class="kbd">↑</kbd> / <kbd class="kbd">I</kbd></span>
               <span>Gallery menu</span>
               <span><kbd class="kbd">M</kbd></span>
+              <span>Save / bookmark</span>
+              <span><kbd class="kbd">B</kbd></span>
               <span>Cycle framing mode</span>
               <span><kbd class="kbd">F</kbd></span>
               <span>Zoom in / out</span>
               <span><kbd class="kbd">+</kbd> / <kbd class="kbd">−</kbd></span>
               <span>Reset zoom</span>
               <span><kbd class="kbd">0</kbd></span>
-              <span>Close panel / reset</span>
+              <span>Close panel / return</span>
               <span><kbd class="kbd">Esc</kbd></span>
             </div>
           </div>
           <footer class="about-footer">
-            <span id="about-version" class="about-version">HORA · v1.9</span>
+            <span id="about-version" class="about-version">HORA · v1.10</span>
             <a
               id="about-repo-link"
               class="about-repo-link"
-              href="https://github.com/JoshuaRamos87/shiny-octo-potato"
+              href="https://github.com/JoshuaRamos87/HORA"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -410,6 +449,6 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="./js/app.js?v=9"></script>
+  <script type="module" src="./js/app.js?v=10"></script>
 </body>
 </html>

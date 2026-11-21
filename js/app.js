@@ -30,13 +30,19 @@ import {
   getSkipsRemainingInHour,
   hasCompatibleCategoryForEras,
   isAllErasEnabled,
+  isBookmarked,
   isPhotographyAvailableForEras,
+  loadArchive,
   loadGalleryState,
   loadSettings,
   recordDisplayedArtwork,
+  recordRecentArtwork,
   resolveThemeMode,
+  saveArchive,
   saveGalleryState,
   saveSettings,
+  toggleBookmark,
+  updateArchivedArtworkContext,
 } from './storage.js';
 import { enrichArtworkContext, fetchNextArtwork } from './api.js';
 import { createZoomController, ZOOM_STEP } from './zoom.js';
@@ -70,6 +76,8 @@ const dom = {
   statusRetryBtn: document.getElementById('status-retry-btn'),
 
   menuTrigger: document.getElementById('menu-trigger'),
+  archiveBanner: document.getElementById('archive-banner'),
+  archiveReturnBtn: document.getElementById('archive-return-btn'),
   infoTrigger: document.getElementById('info-trigger'),
   whisperCaption: document.getElementById('whisper-caption'),
   scrim: document.getElementById('overlay-scrim'),
@@ -84,6 +92,7 @@ const dom = {
   zoomCollapseBtn: document.getElementById('zoom-collapse-btn'),
 
   infoDrawer: document.getElementById('info-drawer'),
+  infoBookmarkBtn: document.getElementById('info-bookmark-btn'),
   infoCloseBtn: document.getElementById('info-close-btn'),
   infoMuseum: document.getElementById('info-museum'),
   infoType: document.getElementById('info-type'),
@@ -117,6 +126,11 @@ const dom = {
   installBtn: document.getElementById('install-btn'),
   installLabel: document.getElementById('install-label'),
   installIosHint: document.getElementById('install-ios-hint'),
+  archiveViewButtons: Array.from(document.querySelectorAll('[data-archive-view]')),
+  archiveViewRecent: document.getElementById('archive-view-recent'),
+  archiveViewSaved: document.getElementById('archive-view-saved'),
+  archiveList: document.getElementById('archive-list'),
+  archiveEmpty: document.getElementById('archive-empty'),
   museumToggles: document.getElementById('museum-toggles'),
   categoryToggles: document.getElementById('category-toggles'),
   eraToggles: document.getElementById('era-toggles'),
@@ -138,6 +152,9 @@ const systemLightMediaQuery =
 
 let settings = loadSettings();
 let galleryState = loadGalleryState();
+let archive = loadArchive();
+let archiveView = 'recent'; // 'recent' | 'saved'
+let revisitArtwork = null;
 let appliedFilterSignature = getFilterSignature(settings);
 let activeOverlay = null; // 'info' | 'menu' | null
 let isLoadingArtwork = false;
@@ -226,6 +243,10 @@ function openOverlay(which) {
 
   updateClockUI();
   updateFilterApplyUI();
+  syncBookmarkButton();
+  if (isMenu) {
+    renderArchivePanel();
+  }
   const focusTarget = isInfo ? dom.infoCloseBtn : dom.menuCloseBtn;
   setTimeout(() => focusTarget?.focus({ preventScroll: true }), 120);
 }
@@ -266,6 +287,217 @@ function selectMenuTab(tabName) {
   }
   if (tabName === 'settings') {
     updateFilterApplyUI();
+  } else if (tabName === 'archive') {
+    renderArchivePanel();
+  }
+}
+
+/* ==========================================================================
+   Lightweight Archive (Recently Viewed, Saved Bookmarks & Revisit Mode)
+   ========================================================================== */
+
+function getDisplayedArtwork() {
+  return revisitArtwork || galleryState.artwork || null;
+}
+
+function setRevisitMode(entry) {
+  revisitArtwork = entry || null;
+  const active = Boolean(revisitArtwork);
+  dom.archiveBanner.hidden = !active;
+  dom.viewport.classList.toggle('is-revisiting', active);
+}
+
+function syncBookmarkButton() {
+  const current = getDisplayedArtwork();
+  const saved = Boolean(current && isBookmarked(archive, current.uid));
+  dom.infoBookmarkBtn.disabled = !current;
+  dom.infoBookmarkBtn.classList.toggle('is-bookmarked', saved);
+  dom.infoBookmarkBtn.setAttribute('aria-pressed', String(saved));
+  dom.infoBookmarkBtn.setAttribute('aria-label', saved ? 'Remove from Saved' : 'Save artwork');
+  dom.infoBookmarkBtn.title = saved ? 'Remove from Saved (B)' : 'Save to Archive (B)';
+}
+
+function createBookmarkIconSvg() {
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '15');
+  svg.setAttribute('height', '15');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.8');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(svgNS, 'path');
+  path.setAttribute('d', 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z');
+  svg.append(path);
+  return svg;
+}
+
+function handleToggleBookmark(artwork) {
+  if (!artwork?.uid) return;
+  const result = toggleBookmark(archive, artwork, {
+    hourLabel: artwork.hourLabel || formatHourLabel(new Date()),
+  });
+  archive = saveArchive(result.archive);
+  syncBookmarkButton();
+  renderArchivePanel();
+  showToast(result.saved ? 'Saved to Archive' : 'Removed from Saved');
+}
+
+function selectArchiveView(view) {
+  archiveView = view === 'saved' ? 'saved' : 'recent';
+  for (const btn of dom.archiveViewButtons) {
+    const active = btn.dataset.archiveView === archiveView;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  renderArchivePanel();
+}
+
+function renderArchivePanel() {
+  const recentCount = archive.recent.length;
+  const savedCount = archive.bookmarks.length;
+  dom.archiveViewRecent.textContent = recentCount > 0 ? `Recent (${recentCount})` : 'Recent';
+  dom.archiveViewSaved.textContent = savedCount > 0 ? `Saved (${savedCount})` : 'Saved';
+
+  const items = archiveView === 'saved' ? archive.bookmarks : archive.recent;
+  const displayedUid = getDisplayedArtwork()?.uid || null;
+  const liveUid = galleryState.artwork?.uid || null;
+
+  dom.archiveList.innerHTML = '';
+
+  if (items.length === 0) {
+    dom.archiveEmpty.hidden = false;
+    dom.archiveEmpty.textContent =
+      archiveView === 'saved'
+        ? 'Tap the bookmark icon in any artwork’s details drawer to save favorites here.'
+        : 'Artworks you view each hour will appear here automatically.';
+    return;
+  }
+
+  dom.archiveEmpty.hidden = true;
+
+  for (const item of items) {
+    const saved = isBookmarked(archive, item.uid);
+    const card = document.createElement('div');
+    card.className = 'archive-card';
+    if (item.uid === displayedUid) {
+      card.classList.add('is-viewing');
+    }
+
+    const mainBtn = document.createElement('button');
+    mainBtn.type = 'button';
+    mainBtn.className = 'archive-card-main';
+    mainBtn.setAttribute('aria-label', `View ${item.title}`);
+    mainBtn.addEventListener('click', () => revisitArchivedArtwork(item));
+
+    const thumbWrap = document.createElement('span');
+    thumbWrap.className = 'archive-thumb-wrap';
+    const img = document.createElement('img');
+    img.className = 'archive-thumb';
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.src = item.thumbUrl || item.imageUrls[0] || '';
+    img.addEventListener(
+      'error',
+      () => {
+        if (item.imageUrls[0] && img.src !== item.imageUrls[0]) {
+          img.src = item.imageUrls[0];
+        }
+      },
+      { once: true }
+    );
+    thumbWrap.append(img);
+
+    const meta = document.createElement('span');
+    meta.className = 'archive-meta';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'archive-title';
+    titleEl.textContent = item.title;
+
+    const artistEl = document.createElement('span');
+    artistEl.className = 'archive-artist';
+    artistEl.textContent = [item.artistShort, item.dateDisplay].filter(Boolean).join(' · ');
+
+    const subEl = document.createElement('span');
+    subEl.className = 'archive-sub';
+    const timeTag = item.uid === liveUid ? 'Current Hour' : item.hourLabel || '';
+    subEl.textContent = [timeTag, item.museumShort].filter(Boolean).join(' · ');
+
+    meta.append(titleEl, artistEl, subEl);
+    mainBtn.append(thumbWrap, meta);
+
+    const bookmarkBtn = document.createElement('button');
+    bookmarkBtn.type = 'button';
+    bookmarkBtn.className = saved ? 'archive-bookmark-btn is-bookmarked' : 'archive-bookmark-btn';
+    bookmarkBtn.setAttribute('aria-pressed', String(saved));
+    bookmarkBtn.setAttribute('aria-label', saved ? `Remove ${item.title} from Saved` : `Save ${item.title}`);
+    bookmarkBtn.append(createBookmarkIconSvg());
+    bookmarkBtn.addEventListener('click', () => handleToggleBookmark(item));
+
+    card.append(mainBtn, bookmarkBtn);
+    dom.archiveList.append(card);
+  }
+}
+
+async function revisitArchivedArtwork(entry) {
+  if (!entry?.uid) return;
+  if (entry.uid === galleryState.artwork?.uid) {
+    closeOverlays();
+    if (revisitArtwork) {
+      await returnToCurrentArtwork();
+    } else {
+      showToast('Already viewing current artwork');
+    }
+    return;
+  }
+
+  closeOverlays();
+  const requestId = ++loadRequestId;
+  setRevisitMode(entry);
+  dom.artworkImage.classList.remove('is-visible');
+  setStageStatus('loading', 'Opening from Archive…');
+  renderArchivePanel();
+
+  try {
+    await presentArtwork(entry, { requestId, isArchiveRevisit: true });
+    if (requestId !== loadRequestId) return;
+    wakeChrome();
+  } catch {
+    if (requestId !== loadRequestId) return;
+    showToast('Couldn’t load archived artwork right now');
+    await returnToCurrentArtwork();
+  }
+}
+
+async function returnToCurrentArtwork() {
+  if (!revisitArtwork) return;
+  setRevisitMode(null);
+  renderArchivePanel();
+
+  const currentHourKey = getCurrentHourKey();
+  if (!galleryState.artwork || galleryState.hourKey !== currentHourKey) {
+    await loadFreshArtwork({ reason: 'top-of-hour', consumeSkip: false });
+    return;
+  }
+
+  const requestId = ++loadRequestId;
+  dom.artworkImage.classList.remove('is-visible');
+  setStageStatus('loading', 'Returning to current work…');
+  try {
+    await presentArtwork(galleryState.artwork, { requestId, isArchiveRevisit: false });
+    if (requestId !== loadRequestId) return;
+    updateClockUI();
+    wakeChrome();
+  } catch {
+    if (requestId !== loadRequestId) return;
+    await loadFreshArtwork({ reason: 'retry', consumeSkip: false });
   }
 }
 
@@ -671,12 +903,16 @@ function loadFirstWorkingImage(urls) {
   });
 }
 
-function renderArtworkMetadata(artwork, { loadingContext = false } = {}) {
+function renderArtworkMetadata(artwork, { loadingContext = false, isArchiveRevisit = false } = {}) {
   dom.infoMuseum.textContent = artwork.museumName;
   dom.infoType.textContent = artwork.categoryLabel || 'Fine Art';
   dom.infoTitle.textContent = artwork.title;
   dom.infoArtist.textContent = artwork.artist;
   dom.infoArtist.hidden = !artwork.artist;
+  if (isArchiveRevisit) {
+    dom.infoHourBadge.textContent = artwork.hourLabel ? `Archived · ${artwork.hourLabel}` : 'Saved in Archive';
+  }
+  syncBookmarkButton();
 
   const captionParts = [artwork.title, artwork.artistShort].filter(Boolean);
   dom.whisperCaption.textContent = captionParts.join(' — ');
@@ -765,7 +1001,7 @@ function renderHistoryBlock(artwork, loadingContext = false) {
   dom.infoHistorySection.hidden = true;
 }
 
-async function presentArtwork(artwork, { requestId }) {
+async function presentArtwork(artwork, { requestId, isArchiveRevisit = false }) {
   zoomController?.reset({ animate: false, collapse: false });
 
   // Show AIC low-res blur preview immediately while the crisp image downloads.
@@ -796,7 +1032,10 @@ async function presentArtwork(artwork, { requestId }) {
   });
 
   setStageStatus('hidden');
-  renderArtworkMetadata(artwork, { loadingContext: artwork.needsContextEnrichment });
+  renderArtworkMetadata(artwork, {
+    loadingContext: artwork.needsContextEnrichment,
+    isArchiveRevisit,
+  });
 
   // Kick off optional Wikipedia/Wikidata context enrichment in the background for Met works.
   if (artwork.needsContextEnrichment && !artwork.descriptionHtml) {
@@ -812,6 +1051,10 @@ async function presentArtwork(artwork, { requestId }) {
         if (galleryState.artwork?.uid === artwork.uid) {
           galleryState = saveGalleryState({ ...galleryState, artwork: enriched });
         }
+        if (revisitArtwork?.uid === artwork.uid) {
+          revisitArtwork = enriched;
+        }
+        archive = saveArchive(updateArchivedArtworkContext(archive, enriched));
         renderHistoryBlock(enriched, false);
       } else {
         renderHistoryBlock(artwork, false);
@@ -829,6 +1072,7 @@ async function presentArtwork(artwork, { requestId }) {
 async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
   if (isLoadingArtwork) return;
   isLoadingArtwork = true;
+  setRevisitMode(null);
   const requestId = ++loadRequestId;
   const hourKey = getCurrentHourKey();
   const hadVisibleArtwork = Boolean(dom.artworkImage.getAttribute('src') && galleryState.artwork);
@@ -861,12 +1105,19 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
       if (requestId !== loadRequestId) return;
 
       try {
-        await presentArtwork(candidate, { requestId });
+        await presentArtwork(candidate, { requestId, isArchiveRevisit: false });
         galleryState = saveGalleryState(
           recordDisplayedArtwork(galleryState, candidate, hourKey, {
             consumedSkip: consumeSkip,
           })
         );
+        archive = saveArchive(
+          recordRecentArtwork(archive, candidate, {
+            hourLabel: formatHourLabel(new Date()),
+          })
+        );
+        syncBookmarkButton();
+        renderArchivePanel();
         appliedFilterSignature = requestedSignature;
         loaded = true;
       } catch (imgErr) {
@@ -968,7 +1219,9 @@ function updateClockUI() {
 
   dom.menuNextLabel.textContent = `Next artwork at ${nextLabel}`;
   dom.menuCountdown.textContent = `in ${countdown}`;
-  dom.infoHourBadge.textContent = `${currentLabel} Hour · Next in ${countdown}`;
+  if (!revisitArtwork) {
+    dom.infoHourBadge.textContent = `${currentLabel} Hour · Next in ${countdown}`;
+  }
 
   const remaining = getSkipsRemainingInHour(galleryState, hourKey);
   const inCooldown = Date.now() < skipCooldownUntil;
@@ -993,7 +1246,9 @@ function updateClockUI() {
 
 function checkHourBoundary() {
   const currentKey = getCurrentHourKey();
-  if (!isLoadingArtwork && galleryState.hourKey && galleryState.hourKey !== currentKey) {
+  // Don't abruptly yank an archived artwork away if the user is peacefully revisiting it;
+  // tapping "Return to Current" will seamlessly load the new hour's work.
+  if (!isLoadingArtwork && !revisitArtwork && galleryState.hourKey && galleryState.hourKey !== currentKey) {
     loadFreshArtwork({ reason: 'top-of-hour', consumeSkip: false });
   }
   updateClockUI();
@@ -1182,6 +1437,16 @@ function bindEvents() {
     syncEraCheckboxes();
     updateFilterApplyUI();
   });
+  dom.infoBookmarkBtn.addEventListener('click', () => {
+    const current = getDisplayedArtwork();
+    if (current) handleToggleBookmark(current);
+  });
+  dom.archiveReturnBtn.addEventListener('click', () => returnToCurrentArtwork());
+
+  for (const btn of dom.archiveViewButtons) {
+    btn.addEventListener('click', () => selectArchiveView(btn.dataset.archiveView));
+  }
+
   dom.statusRetryBtn.addEventListener('click', () => loadFreshArtwork({ reason: 'retry' }));
   dom.fullscreenBtn.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', updateFullscreenButton);
@@ -1243,6 +1508,9 @@ function bindEvents() {
       } else if (zoomController?.isZoomed()) {
         e.preventDefault();
         zoomController.reset({ animate: true, collapse: false });
+      } else if (revisitArtwork) {
+        e.preventDefault();
+        returnToCurrentArtwork();
       }
     } else if (e.key === '+' || e.key === '=') {
       if (!activeOverlay) {
@@ -1276,6 +1544,12 @@ function bindEvents() {
       } else {
         e.preventDefault();
         openOverlay('menu');
+      }
+    } else if (e.key.toLowerCase() === 'b') {
+      const current = getDisplayedArtwork();
+      if (current) {
+        e.preventDefault();
+        handleToggleBookmark(current);
       }
     } else if (e.key.toLowerCase() === 'f') {
       e.preventDefault();
@@ -1321,6 +1595,8 @@ async function init() {
   applyFraming(settings.framing);
   applyTheme(settings.theme, { persist: false });
   renderFilterSettings();
+  renderArchivePanel();
+  syncBookmarkButton();
   updateFullscreenButton();
   setupPwaSupport();
   registerServiceWorker();
@@ -1341,7 +1617,16 @@ async function init() {
     const requestId = ++loadRequestId;
     try {
       setStageStatus('loading', 'Restoring this hour’s work…');
-      await presentArtwork(galleryState.artwork, { requestId });
+      await presentArtwork(galleryState.artwork, { requestId, isArchiveRevisit: false });
+      if (!archive.recent.some((item) => item.uid === galleryState.artwork.uid)) {
+        archive = saveArchive(
+          recordRecentArtwork(archive, galleryState.artwork, {
+            hourLabel: formatHourLabel(new Date()),
+          })
+        );
+      }
+      syncBookmarkButton();
+      renderArchivePanel();
       updateClockUI();
       return;
     } catch {

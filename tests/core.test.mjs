@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { APP_VERSION, ART_ERAS, MAX_SKIPS_PER_HOUR, REPO_URL, STORAGE_KEYS, THEME_MODES } from '../js/config.js';
+import {
+  APP_VERSION,
+  ART_ERAS,
+  MAX_SKIPS_PER_HOUR,
+  RECENT_ARCHIVE_LIMIT,
+  REPO_URL,
+  STORAGE_KEYS,
+  THEME_MODES,
+} from '../js/config.js';
 import {
   formatCountdown,
   getCurrentHourKey,
@@ -16,14 +24,21 @@ import {
   getSkipsUsedInHour,
   hasCompatibleCategoryForEras,
   isAllErasEnabled,
+  isBookmarked,
   isPhotographyAvailableForEras,
+  loadArchive,
   loadGalleryState,
   loadSettings,
   normalizeSettings,
   recordDisplayedArtwork,
+  recordRecentArtwork,
   resolveThemeMode,
+  saveArchive,
   saveGalleryState,
   saveSettings,
+  serializeArchiveArtwork,
+  toggleBookmark,
+  updateArchivedArtworkContext,
 } from '../js/storage.js';
 import {
   buildAicImageUrls,
@@ -916,8 +931,82 @@ test('East Asian eras strictly isolate Japan and China, allow Early Imperial Chi
   assert.ok(requestedUrls[1].endsWith('&q=Japan'));
 
   assert.match(APP_VERSION, /^\d+\.\d+/);
-  assert.equal(REPO_URL, 'https://github.com/JoshuaRamos87/shiny-octo-potato');
+  assert.equal(REPO_URL, 'https://github.com/JoshuaRamos87/HORA');
 });
+
+test('archive logs recent artworks (deduplicated & capped), toggles bookmarks, strips LQIP, and patches enriched context', () => {
+  const store = createMemoryStorage();
+  let archive = loadArchive(store);
+  assert.deepEqual(archive, { recent: [], bookmarks: [] });
+
+  const makeWork = (n) => ({
+    uid: `aic:${1000 + n}`,
+    source: 'aic',
+    museumName: 'Art Institute of Chicago',
+    museumShort: 'Art Institute of Chicago',
+    id: 1000 + n,
+    title: `Artwork ${n}`,
+    artist: `Artist ${n}`,
+    artistShort: `Artist ${n}`,
+    category: 'paintings',
+    categoryLabel: 'Painting',
+    dateDisplay: '1889',
+    imageUrls: [`https://example.com/${n}-hi.jpg`, `https://example.com/${n}-thumb.jpg`],
+    lqip: 'data:image/jpeg;base64,HUGE_INLINE_PAYLOAD',
+    needsContextEnrichment: true,
+    descriptionHtml: '',
+  });
+
+  // Serialization strips heavy base64 LQIP and selects lightweight thumbUrl
+  const serialized = serializeArchiveArtwork(makeWork(1), { hourLabel: '2:00 PM' });
+  assert.equal(serialized.lqip, '');
+  assert.equal(serialized.thumbUrl, 'https://example.com/1-thumb.jpg');
+  assert.equal(serialized.hourLabel, '2:00 PM');
+
+  // Record 20 items -> capped cleanly at RECENT_ARCHIVE_LIMIT (15), newest first
+  for (let i = 1; i <= 20; i++) {
+    archive = recordRecentArtwork(archive, makeWork(i), { hourLabel: `${i}:00` });
+  }
+  assert.equal(archive.recent.length, RECENT_ARCHIVE_LIMIT);
+  assert.equal(archive.recent[0].uid, 'aic:1020');
+
+  // Re-viewing an older artwork moves it back to the top without duplicating
+  archive = recordRecentArtwork(archive, makeWork(10), { hourLabel: '3:00 PM' });
+  assert.equal(archive.recent.length, RECENT_ARCHIVE_LIMIT);
+  assert.equal(archive.recent[0].uid, 'aic:1010');
+  assert.equal(archive.recent.filter((item) => item.uid === 'aic:1010').length, 1);
+
+  // Bookmark toggle saves & removes cleanly
+  const work10 = makeWork(10);
+  assert.equal(isBookmarked(archive, work10.uid), false);
+  const firstToggle = toggleBookmark(archive, work10, { hourLabel: '3:00 PM' });
+  assert.equal(firstToggle.saved, true);
+  archive = firstToggle.archive;
+  assert.equal(isBookmarked(archive, work10.uid), true);
+
+  // Background Wikipedia enrichment patches both Recent and Saved copies
+  archive = updateArchivedArtworkContext(archive, {
+    uid: work10.uid,
+    descriptionHtml: '<p>Rich art history note.</p>',
+    descriptionSource: { label: 'Historical Context · Wikipedia', url: 'https://en.wikipedia.org/wiki/Test' },
+  });
+  assert.equal(archive.recent[0].descriptionHtml, '<p>Rich art history note.</p>');
+  assert.equal(archive.bookmarks[0].descriptionHtml, '<p>Rich art history note.</p>');
+  assert.equal(archive.bookmarks[0].needsContextEnrichment, false);
+
+  // Persist & reload from localStorage
+  saveArchive(archive, store);
+  const reloaded = loadArchive(store);
+  assert.equal(reloaded.recent.length, RECENT_ARCHIVE_LIMIT);
+  assert.equal(reloaded.bookmarks.length, 1);
+  assert.equal(reloaded.bookmarks[0].uid, work10.uid);
+
+  // Toggle again removes bookmark
+  const secondToggle = toggleBookmark(reloaded, work10);
+  assert.equal(secondToggle.saved, false);
+  assert.equal(isBookmarked(secondToggle.archive, work10.uid), false);
+});
+
 
 
 

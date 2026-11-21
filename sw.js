@@ -6,7 +6,7 @@
  * - Keeps the 2 most recent artwork images cached for offline viewing.
  */
 
-const SHELL_CACHE = 'hora-shell-v9';
+const SHELL_CACHE = 'hora-shell-v10';
 const ARTWORK_CACHE = 'hora-artwork-v1';
 const MAX_CACHED_ARTWORKS = 2;
 

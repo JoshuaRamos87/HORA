@@ -2,12 +2,13 @@
  * Configuration, museum definitions, art-type taxonomy, and defaults for HORA.
  */
 
-export const APP_VERSION = '1.9';
-export const REPO_URL = 'https://github.com/JoshuaRamos87/shiny-octo-potato';
+export const APP_VERSION = '1.10';
+export const REPO_URL = 'https://github.com/JoshuaRamos87/HORA';
 
 export const STORAGE_KEYS = {
   STATE: 'hora_gallery_state_v1',
   SETTINGS: 'hora_gallery_settings_v1',
+  ARCHIVE: 'hora_gallery_archive_v1',
 };
 
 export const API_ENDPOINTS = {
@@ -730,6 +731,8 @@ export const VERIFIED_FALLBACK_IDS = {
 };
 
 export const RECENT_HISTORY_LIMIT = 80;
+export const RECENT_ARCHIVE_LIMIT = 15;
+export const BOOKMARKS_LIMIT = 100;
 export const IDLE_TIMEOUT_MS = 3600;
 export const MAX_SKIPS_PER_HOUR = 5;
 export const SKIP_COOLDOWN_MS = 2000;

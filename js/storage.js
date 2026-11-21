@@ -6,10 +6,12 @@
 import {
   ART_CATEGORIES,
   ART_ERAS,
+  BOOKMARKS_LIMIT,
   DEFAULT_SETTINGS,
   FRAMING_MODES,
   MAX_SKIPS_PER_HOUR,
   MUSEUMS,
+  RECENT_ARCHIVE_LIMIT,
   RECENT_HISTORY_LIMIT,
   STORAGE_KEYS,
   THEME_MODES,
@@ -267,3 +269,183 @@ export function recordDisplayedArtwork(state, artwork, hourKey, { consumedSkip =
     recentIds: nextRecent.slice(-RECENT_HISTORY_LIMIT),
   };
 }
+
+/* ==========================================================================
+   Lightweight Archive (Recently Viewed & Saved Bookmarks)
+   ========================================================================== */
+
+/**
+ * Produces a compact, self-contained archive snapshot of an artwork for
+ * localStorage (omitting heavy inline base64 LQIP payloads while retaining
+ * full-resolution URLs, fast thumbnail URL, and all curatorial metadata).
+ */
+export function serializeArchiveArtwork(artwork, { hourLabel = '', seenAt = null, savedAt = null } = {}) {
+  if (!artwork || typeof artwork !== 'object' || typeof artwork.uid !== 'string') return null;
+  const imageUrls = Array.isArray(artwork.imageUrls)
+    ? artwork.imageUrls.filter((u) => typeof u === 'string' && u.length > 0)
+    : [];
+  if (imageUrls.length === 0) return null;
+
+  const thumbUrl =
+    typeof artwork.thumbUrl === 'string' && artwork.thumbUrl.length > 0
+      ? artwork.thumbUrl
+      : imageUrls[imageUrls.length - 1];
+
+  return {
+    uid: artwork.uid,
+    source: artwork.source || '',
+    museumName: artwork.museumName || '',
+    museumShort: artwork.museumShort || artwork.museumName || '',
+    id: artwork.id ?? null,
+    title: artwork.title || 'Untitled',
+    artist: artwork.artist || '',
+    artistShort: artwork.artistShort || artwork.artist || '',
+    category: artwork.category || '',
+    categoryLabel: artwork.categoryLabel || 'Fine Art',
+    dateDisplay: artwork.dateDisplay || '',
+    eraOrMovement: artwork.eraOrMovement || '',
+    originOrCulture: artwork.originOrCulture || '',
+    medium: artwork.medium || '',
+    dimensions: artwork.dimensions || '',
+    department: artwork.department || '',
+    galleryLocation: artwork.galleryLocation || '',
+    imageUrls,
+    thumbUrl,
+    lqip: '',
+    altText: artwork.altText || artwork.title || 'Artwork',
+    descriptionHtml: artwork.descriptionHtml || '',
+    descriptionSource: artwork.descriptionSource || null,
+    needsContextEnrichment: Boolean(artwork.needsContextEnrichment),
+    objectWikidataUrl: artwork.objectWikidataUrl || '',
+    artistWikidataUrl: artwork.artistWikidataUrl || '',
+    creditLine: artwork.creditLine || '',
+    tags: Array.isArray(artwork.tags) ? artwork.tags.slice(0, 6) : [],
+    museumUrl: artwork.museumUrl || '',
+    hourLabel: hourLabel || artwork.hourLabel || '',
+    seenAt: typeof seenAt === 'number' ? seenAt : typeof artwork.seenAt === 'number' ? artwork.seenAt : null,
+    savedAt: typeof savedAt === 'number' ? savedAt : typeof artwork.savedAt === 'number' ? artwork.savedAt : null,
+  };
+}
+
+function sanitizeArchiveList(list, limit) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const clean = serializeArchiveArtwork(item);
+    if (!clean || seen.has(clean.uid)) continue;
+    seen.add(clean.uid);
+    out.push(clean);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+export function loadArchive(customStorage) {
+  const store = resolveStorage(customStorage);
+  if (!store) return { recent: [], bookmarks: [] };
+  const parsed = safeParse(store.getItem(STORAGE_KEYS.ARCHIVE));
+  if (!parsed || typeof parsed !== 'object') return { recent: [], bookmarks: [] };
+  return {
+    recent: sanitizeArchiveList(parsed.recent, RECENT_ARCHIVE_LIMIT),
+    bookmarks: sanitizeArchiveList(parsed.bookmarks, BOOKMARKS_LIMIT),
+  };
+}
+
+export function saveArchive(archive, customStorage) {
+  const clean = {
+    recent: sanitizeArchiveList(archive?.recent, RECENT_ARCHIVE_LIMIT),
+    bookmarks: sanitizeArchiveList(archive?.bookmarks, BOOKMARKS_LIMIT),
+  };
+  const store = resolveStorage(customStorage);
+  if (store) {
+    try {
+      store.setItem(STORAGE_KEYS.ARCHIVE, JSON.stringify(clean));
+    } catch {
+      // Ignore quota / private browsing write errors gracefully.
+    }
+  }
+  return clean;
+}
+
+/**
+ * Prepends a viewed artwork to the Recent log (deduplicated, capped at RECENT_ARCHIVE_LIMIT).
+ */
+export function recordRecentArtwork(archive, artwork, { hourLabel = '', seenAt = Date.now() } = {}) {
+  const base = {
+    recent: Array.isArray(archive?.recent) ? archive.recent : [],
+    bookmarks: Array.isArray(archive?.bookmarks) ? archive.bookmarks : [],
+  };
+  const entry = serializeArchiveArtwork(artwork, { hourLabel, seenAt });
+  if (!entry) return base;
+
+  const filtered = base.recent.filter((item) => item.uid !== entry.uid);
+  return {
+    recent: [entry, ...filtered].slice(0, RECENT_ARCHIVE_LIMIT),
+    bookmarks: base.bookmarks,
+  };
+}
+
+/**
+ * Updates cached historical context (e.g. after background Wikipedia enrichment)
+ * inside both Recent and Saved lists if the artwork is present.
+ */
+export function updateArchivedArtworkContext(archive, enrichedArtwork) {
+  if (!enrichedArtwork?.uid) return archive || { recent: [], bookmarks: [] };
+  const patch = (item) =>
+    item.uid === enrichedArtwork.uid
+      ? {
+          ...item,
+          descriptionHtml: enrichedArtwork.descriptionHtml || item.descriptionHtml,
+          descriptionSource: enrichedArtwork.descriptionSource || item.descriptionSource,
+          needsContextEnrichment: false,
+        }
+      : item;
+
+  return {
+    recent: (archive?.recent || []).map(patch),
+    bookmarks: (archive?.bookmarks || []).map(patch),
+  };
+}
+
+export function isBookmarked(archive, uid) {
+  if (!uid || !Array.isArray(archive?.bookmarks)) return false;
+  return archive.bookmarks.some((item) => item.uid === uid);
+}
+
+/**
+ * Toggles bookmark status for an artwork, returning the updated archive and
+ * whether the piece is now saved (`true`) or removed (`false`).
+ */
+export function toggleBookmark(archive, artwork, { hourLabel = '', savedAt = Date.now() } = {}) {
+  const base = {
+    recent: Array.isArray(archive?.recent) ? archive.recent : [],
+    bookmarks: Array.isArray(archive?.bookmarks) ? archive.bookmarks : [],
+  };
+  if (!artwork?.uid) return { archive: base, saved: false };
+
+  if (isBookmarked(base, artwork.uid)) {
+    return {
+      archive: {
+        recent: base.recent,
+        bookmarks: base.bookmarks.filter((item) => item.uid !== artwork.uid),
+      },
+      saved: false,
+    };
+  }
+
+  const entry = serializeArchiveArtwork(artwork, {
+    hourLabel: hourLabel || artwork.hourLabel || '',
+    savedAt,
+  });
+  if (!entry) return { archive: base, saved: false };
+
+  return {
+    archive: {
+      recent: base.recent,
+      bookmarks: [entry, ...base.bookmarks].slice(0, BOOKMARKS_LIMIT),
+    },
+    saved: true,
+  };
+}
+
