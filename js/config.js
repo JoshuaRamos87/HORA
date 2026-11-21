@@ -2,6 +2,9 @@
  * Configuration, museum definitions, art-type taxonomy, and defaults for HORA.
  */
 
+export const APP_VERSION = '1.9';
+export const REPO_URL = 'https://github.com/JoshuaRamos87/shiny-octo-potato';
+
 export const STORAGE_KEYS = {
   STATE: 'hora_gallery_state_v1',
   SETTINGS: 'hora_gallery_settings_v1',

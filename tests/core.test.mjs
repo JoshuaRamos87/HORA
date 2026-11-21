@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ART_ERAS, MAX_SKIPS_PER_HOUR, STORAGE_KEYS, THEME_MODES } from '../js/config.js';
+import { APP_VERSION, ART_ERAS, MAX_SKIPS_PER_HOUR, REPO_URL, STORAGE_KEYS, THEME_MODES } from '../js/config.js';
 import {
   formatCountdown,
   getCurrentHourKey,
@@ -914,6 +914,9 @@ test('East Asian eras strictly isolate Japan and China, allow Early Imperial Chi
   assert.equal(work.uid, 'met:45434');
   assert.equal(work.category, 'works-on-paper');
   assert.ok(requestedUrls[1].endsWith('&q=Japan'));
+
+  assert.match(APP_VERSION, /^\d+\.\d+/);
+  assert.equal(REPO_URL, 'https://github.com/JoshuaRamos87/shiny-octo-potato');
 });
 
 

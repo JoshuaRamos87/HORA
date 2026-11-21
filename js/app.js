@@ -4,6 +4,7 @@
  */
 
 import {
+  APP_VERSION,
   ART_CATEGORIES,
   ART_ERA_GROUPS,
   ART_ERAS,
@@ -12,6 +13,7 @@ import {
   IDLE_TIMEOUT_MS,
   MAX_SKIPS_PER_HOUR,
   MUSEUMS,
+  REPO_URL,
   SKIP_COOLDOWN_MS,
   THEME_MODES,
 } from './config.js';
@@ -123,6 +125,8 @@ const dom = {
   applyFiltersBtn: document.getElementById('apply-filters-btn'),
   applyFiltersLabel: document.getElementById('apply-filters-label'),
   filterApplyHint: document.getElementById('filter-apply-hint'),
+  aboutVersion: document.getElementById('about-version'),
+  aboutRepoLink: document.getElementById('about-repo-link'),
 
   toast: document.getElementById('toast'),
 };
@@ -1306,6 +1310,13 @@ async function init() {
     isOverlayOpen: () => Boolean(activeOverlay),
     onActivity: wakeChrome,
   });
+
+  if (dom.aboutVersion) {
+    dom.aboutVersion.textContent = `HORA · v${APP_VERSION}`;
+  }
+  if (dom.aboutRepoLink) {
+    dom.aboutRepoLink.href = REPO_URL;
+  }
 
   applyFraming(settings.framing);
   applyTheme(settings.theme, { persist: false });
