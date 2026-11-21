@@ -6,7 +6,7 @@
  *   still renders cleanly if reopened offline.
  */
 
-const SHELL_CACHE = 'hora-shell-v3';
+const SHELL_CACHE = 'hora-shell-v4';
 const ARTWORK_CACHE = 'hora-artwork-v1';
 const MAX_CACHED_ARTWORKS = 2;
 

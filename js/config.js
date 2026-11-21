@@ -202,6 +202,261 @@ export const ART_CATEGORIES = [
   },
 ];
 
+/**
+ * Major art-history eras combining chronological date windows with curatorial
+ * department, style, and regional rules so movement-based eras (like Baroque &
+ * Rococo or Neoclassicism & Romanticism) stay stylistically authentic across
+ * both the Art Institute of Chicago and The Met.
+ */
+export const ART_ERAS = [
+  {
+    id: 'ancient',
+    label: 'Prehistoric & Ancient',
+    description: 'c. 40,000 BCE–400 CE · Egypt, Greece, Rome & Near East',
+    dateBegin: -40000,
+    dateEnd: 400,
+    regionScope: 'ancient',
+    aicQueries: [
+      'ancient egyptian',
+      'ancient greek',
+      'ancient roman',
+      'ancient mediterranean',
+      'mesopotamian',
+      'hellenistic',
+    ],
+    aicStyles: [
+      'ancient',
+      'egyptian',
+      'greek',
+      'roman',
+      'etruscan',
+      'hellenistic',
+      'assyrian',
+      'babylonian',
+      'sumerian',
+      'cycladic',
+      'minoan',
+      'mycenaean',
+      'prehistoric',
+      'neolithic',
+      'classical',
+    ],
+    metDepartments: [3, 10, 13],
+    metQueries: ['temple', 'statue', 'vase', 'relief', 'gold', 'marble', 'bronze', 'mosaic', 'vessel'],
+  },
+  {
+    id: 'medieval',
+    label: 'Medieval',
+    description: 'c. 400–1400 · Byzantine, Romanesque & Gothic',
+    dateBegin: 400,
+    dateEnd: 1400,
+    regionScope: 'europe',
+    aicQueries: [
+      'medieval',
+      'gothic',
+      'byzantine',
+      'romanesque',
+      'illuminated manuscript',
+    ],
+    aicStyles: [
+      'medieval',
+      'gothic',
+      'byzantine',
+      'romanesque',
+      'early christian',
+      'carolingian',
+      'ottonian',
+      'international gothic',
+    ],
+    metDepartments: [7, 17, 11, 15, 4],
+    metQueries: ['virgin', 'gothic', 'manuscript', 'saint', 'stained glass', 'altarpiece', 'ivory', 'enamel', 'tapestry'],
+  },
+  {
+    id: 'renaissance',
+    label: 'Renaissance',
+    description: 'c. 1400–1600 · Early/High, Northern & Mannerism',
+    dateBegin: 1400,
+    dateEnd: 1600,
+    regionScope: 'europe',
+    aicQueries: [
+      'renaissance',
+      'mannerism',
+      'italian renaissance',
+      'northern renaissance',
+      '15th century europe',
+      '16th century europe',
+    ],
+    aicStyles: [
+      'renaissance',
+      'mannerism',
+      'northern renaissance',
+      'early renaissance',
+      'high renaissance',
+      'quattrocento',
+      'cinquecento',
+    ],
+    metDepartments: [11, 12, 9, 15, 4],
+    metQueries: ['madonna', 'portrait', 'saint', 'venus', 'christ', 'landscape', 'engraving', 'bronze', 'tapestry'],
+  },
+  {
+    id: 'baroque-rococo',
+    label: 'Baroque & Rococo',
+    description: 'c. 1600–1780 · Dramatic chiaroscuro & ornate elegance',
+    dateBegin: 1600,
+    dateEnd: 1780,
+    regionScope: 'europe',
+    aicQueries: [
+      'baroque',
+      'rococo',
+      'dutch golden age',
+      '17th century dutch',
+      '17th century italian',
+      '18th century french',
+    ],
+    aicStyles: [
+      'baroque',
+      'rococo',
+      'dutch golden age',
+      'flemish baroque',
+      'caravaggism',
+      'louis xiv',
+      'louis xv',
+      '17th century',
+      '18th century',
+    ],
+    metDepartments: [11, 12, 9, 15, 8, 18],
+    metQueries: ['portrait', 'still life', 'landscape', 'etching', 'mythology', 'allegory', 'interior', 'pastoral', 'marble'],
+  },
+  {
+    id: 'neoclassicism-romanticism',
+    label: 'Neoclassicism & Romanticism',
+    description: 'c. 1750–1850 · Classical order & sublime emotion',
+    dateBegin: 1750,
+    dateEnd: 1850,
+    regionScope: 'western',
+    aicQueries: [
+      'neoclassicism',
+      'romanticism',
+      'neoclassical',
+      'hudson river school',
+      'empire style',
+      'early 19th century',
+    ],
+    aicStyles: [
+      'neoclassicism',
+      'neoclassical',
+      'romanticism',
+      'empire',
+      'regency',
+      'federal',
+      'hudson river',
+      'biedermeier',
+      'georgian',
+    ],
+    metDepartments: [11, 12, 9, 1, 15, 19],
+    metQueries: ['landscape', 'portrait', 'classical', 'sea', 'ruins', 'storm', 'mythology', 'mountain', 'etching'],
+  },
+  {
+    id: 'realism-impressionism',
+    label: 'Realism & Impressionism',
+    description: 'c. 1850–1905 · Realism, Impressionism & Post-Impressionism',
+    dateBegin: 1850,
+    dateEnd: 1905,
+    regionScope: 'western',
+    aicQueries: [
+      'impressionism',
+      'post-impressionism',
+      'realism',
+      'symbolism',
+      'art nouveau',
+      'pre-raphaelite',
+      'barbizon',
+    ],
+    aicStyles: [
+      'impressionism',
+      'post-impressionism',
+      'realism',
+      'barbizon',
+      'symbolism',
+      'art nouveau',
+      'pre-raphaelite',
+      'aesthetic movement',
+      'arts and crafts',
+      'nabis',
+      'pointillism',
+      'neo-impressionism',
+      '19th century',
+    ],
+    metDepartments: [11, 12, 9, 1, 15, 19, 21],
+    metQueries: ['garden', 'river', 'paris', 'portrait', 'landscape', 'dancer', 'flowers', 'sea', 'still life'],
+  },
+  {
+    id: 'modern',
+    label: 'Modern',
+    description: 'c. 1900–1970 · Cubism, Surrealism, Abstract & Bauhaus',
+    dateBegin: 1900,
+    dateEnd: 1970,
+    regionScope: 'any',
+    aicQueries: [
+      'modernism',
+      'cubism',
+      'surrealism',
+      'abstract expressionism',
+      'expressionism',
+      'fauvism',
+      'bauhaus',
+      'art deco',
+      'pop art',
+    ],
+    aicStyles: [
+      'modern',
+      'modernism',
+      'cubism',
+      'surrealism',
+      'expressionism',
+      'abstract expressionism',
+      'fauvism',
+      'bauhaus',
+      'dada',
+      'futurism',
+      'de stijl',
+      'art deco',
+      'pop art',
+      'minimalism',
+      'mid-century',
+      '20th century',
+    ],
+    metDepartments: [21, 19, 9, 1, 8, 12],
+    metQueries: ['abstract', 'composition', 'city', 'portrait', 'still life', 'figure', 'landscape', 'night', 'study'],
+  },
+  {
+    id: 'contemporary',
+    label: 'Contemporary',
+    description: '1970–Present · Postmodern, Conceptual & Present Day',
+    dateBegin: 1970,
+    dateEnd: 2035,
+    regionScope: 'any',
+    aicQueries: [
+      'contemporary art',
+      'postmodernism',
+      'conceptual art',
+      'contemporary photography',
+      'contemporary painting',
+      'late 20th century',
+    ],
+    aicStyles: [
+      'contemporary',
+      'postmodern',
+      'conceptual',
+      'neo-expressionism',
+      '21st century',
+      'late 20th century',
+    ],
+    metDepartments: [21, 19, 9, 8],
+    metQueries: ['untitled', 'portrait', 'color', 'light', 'street', 'figure', 'landscape', 'print', 'photograph'],
+  },
+];
+
 export const FRAMING_MODES = ['ambient', 'fill', 'matte'];
 
 export const DEFAULT_SETTINGS = {
@@ -219,6 +474,16 @@ export const DEFAULT_SETTINGS = {
     decorative: true,
     artifacts: true,
   },
+  eras: {
+    ancient: true,
+    medieval: true,
+    renaissance: true,
+    'baroque-rococo': true,
+    'neoclassicism-romanticism': true,
+    'realism-impressionism': true,
+    modern: true,
+    contemporary: true,
+  },
 };
 
 /**
@@ -227,17 +492,17 @@ export const DEFAULT_SETTINGS = {
  */
 export const VERIFIED_FALLBACK_IDS = {
   aic: [
-    { id: 16568, category: 'paintings' },   // Monet, Water Lilies (1906)
-    { id: 27992, category: 'paintings' },   // Seurat, A Sunday on La Grande Jatte
-    { id: 28560, category: 'paintings' },   // Van Gogh, The Bedroom
-    { id: 111628, category: 'paintings' },  // Hopper, Nighthawks
-    { id: 24645, category: 'works-on-paper' }, // Hokusai, The Great Wave
+    { id: 16568, category: 'paintings', era: 'modern' },               // Monet, Water Lilies (1906)
+    { id: 27992, category: 'paintings', era: 'realism-impressionism' }, // Seurat, A Sunday on La Grande Jatte (1884)
+    { id: 28560, category: 'paintings', era: 'realism-impressionism' }, // Van Gogh, The Bedroom (1889)
+    { id: 111628, category: 'paintings', era: 'modern' },              // Hopper, Nighthawks (1942)
+    { id: 24645, category: 'works-on-paper', era: null },              // Hokusai, The Great Wave (Edo Japan, 1831)
   ],
   met: [
-    { id: 436524, category: 'paintings' },  // Van Gogh, Sunflowers
-    { id: 436528, category: 'paintings' },  // Van Gogh, Irises
-    { id: 437133, category: 'paintings' },  // Leutze, Washington Crossing the Delaware
-    { id: 547802, category: 'artifacts' },  // The Temple of Dendur
+    { id: 436524, category: 'paintings', era: 'realism-impressionism' }, // Van Gogh, Sunflowers (1887)
+    { id: 436528, category: 'paintings', era: 'realism-impressionism' }, // Van Gogh, Irises (1890)
+    { id: 437133, category: 'paintings', era: 'realism-impressionism' }, // Leutze, Washington Crossing the Delaware (1851)
+    { id: 547802, category: 'artifacts', era: 'ancient' },               // The Temple of Dendur (c. 15 BCE)
   ],
 };
 
@@ -247,4 +512,5 @@ export const MAX_SKIPS_PER_HOUR = 5;
 export const SKIP_COOLDOWN_MS = 2000;
 export const FILTER_APPLY_COOLDOWN_MS = 3000;
 export const AIC_RATE_LIMIT_COOLDOWN_MS = 60_000;
+
 

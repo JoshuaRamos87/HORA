@@ -5,6 +5,7 @@
 
 import {
   ART_CATEGORIES,
+  ART_ERAS,
   FILTER_APPLY_COOLDOWN_MS,
   FRAMING_MODES,
   IDLE_TIMEOUT_MS,
@@ -23,6 +24,7 @@ import {
   canSkipInHour,
   getFilterSignature,
   getSkipsRemainingInHour,
+  isAllErasEnabled,
   loadGalleryState,
   loadSettings,
   recordDisplayedArtwork,
@@ -97,6 +99,8 @@ const dom = {
   installIosHint: document.getElementById('install-ios-hint'),
   museumToggles: document.getElementById('museum-toggles'),
   categoryToggles: document.getElementById('category-toggles'),
+  eraToggles: document.getElementById('era-toggles'),
+  erasAllBtn: document.getElementById('eras-all-btn'),
   toggleHighlights: document.getElementById('toggle-highlights'),
   applyFiltersBtn: document.getElementById('apply-filters-btn'),
   applyFiltersLabel: document.getElementById('apply-filters-label'),
@@ -289,6 +293,7 @@ function updateFilterApplyUI() {
   const now = Date.now();
   const inCooldown = now < filterCooldownUntil;
 
+  dom.erasAllBtn.disabled = isAllErasEnabled(settings);
   dom.applyFiltersBtn.disabled = !pending || isLoadingArtwork || inCooldown;
 
   if (isLoadingArtwork) {
@@ -302,17 +307,18 @@ function updateFilterApplyUI() {
     dom.filterApplyHint.textContent = 'Loads a matching work immediately — doesn’t use a skip.';
   } else {
     dom.applyFiltersLabel.textContent = 'Filters Active';
-    dom.filterApplyHint.textContent = 'Toggle any museum or art type to preview matching art without using a skip.';
+    dom.filterApplyHint.textContent = 'Toggle museums, art types, or eras to preview matching art without using a skip.';
   }
 }
 
-function createToggleRow({ id, title, desc, checked, onChange }) {
-  const label = document.createElement('label');
-  label.className = 'toggle-row';
-  label.htmlFor = id;
+function createToggleRow({ id, title, desc, checked, onChange, onOnly = null }) {
+  const row = document.createElement(onOnly ? 'div' : 'label');
+  row.className = 'toggle-row';
+  if (!onOnly) row.htmlFor = id;
 
-  const textWrap = document.createElement('span');
+  const textWrap = document.createElement(onOnly ? 'label' : 'span');
   textWrap.className = 'toggle-text';
+  if (onOnly) textWrap.htmlFor = id;
 
   const titleEl = document.createElement('span');
   titleEl.className = 'toggle-title';
@@ -331,8 +337,31 @@ function createToggleRow({ id, title, desc, checked, onChange }) {
   input.checked = checked;
   input.addEventListener('change', () => onChange(input));
 
-  label.append(textWrap, input);
-  return label;
+  if (onOnly) {
+    const controls = document.createElement('div');
+    controls.className = 'toggle-controls';
+
+    const onlyBtn = document.createElement('button');
+    onlyBtn.type = 'button';
+    onlyBtn.className = 'only-pill-btn';
+    onlyBtn.textContent = 'Only';
+    onlyBtn.setAttribute('aria-label', `Select only ${title}`);
+    onlyBtn.addEventListener('click', () => onOnly());
+
+    controls.append(onlyBtn, input);
+    row.append(textWrap, controls);
+  } else {
+    row.append(textWrap, input);
+  }
+
+  return row;
+}
+
+function syncEraCheckboxes() {
+  for (const era of ART_ERAS) {
+    const el = document.getElementById(`toggle-era-${era.id}`);
+    if (el) el.checked = Boolean(settings.eras[era.id]);
+  }
 }
 
 function renderFilterSettings() {
@@ -374,6 +403,37 @@ function renderFilterSettings() {
             return;
           }
           settings = saveSettings({ ...settings, categories: nextCats });
+          updateFilterApplyUI();
+        },
+      })
+    );
+  }
+
+  dom.eraToggles.innerHTML = '';
+  for (const era of ART_ERAS) {
+    dom.eraToggles.append(
+      createToggleRow({
+        id: `toggle-era-${era.id}`,
+        title: era.label,
+        desc: era.description,
+        checked: Boolean(settings.eras[era.id]),
+        onChange: (input) => {
+          const nextEras = { ...settings.eras, [era.id]: input.checked };
+          if (!Object.values(nextEras).some(Boolean)) {
+            input.checked = true;
+            showToast('Keep at least one era enabled');
+            return;
+          }
+          settings = saveSettings({ ...settings, eras: nextEras });
+          updateFilterApplyUI();
+        },
+        onOnly: () => {
+          const onlyEras = {};
+          for (const item of ART_ERAS) {
+            onlyEras[item.id] = item.id === era.id;
+          }
+          settings = saveSettings({ ...settings, eras: onlyEras });
+          syncEraCheckboxes();
           updateFilterApplyUI();
         },
       })
@@ -653,11 +713,14 @@ async function loadFreshArtwork({ reason = 'hour', consumeSkip = false } = {}) {
     if ((reason === 'skip' || reason === 'filter') && hadVisibleArtwork) {
       dom.artworkImage.classList.add('is-visible');
       setStageStatus('hidden');
+      const isNoMatch = typeof err?.message === 'string' && err.message.startsWith('No artworks matched');
       showToast(
-        reason === 'skip'
-          ? 'Couldn’t reach museums — your skip wasn’t used'
-          : 'Couldn’t reach museums right now — try applying again',
-        3400
+        isNoMatch
+          ? err.message
+          : reason === 'skip'
+            ? 'Couldn’t reach museums — your skip wasn’t used'
+            : 'Couldn’t reach museums right now — try applying again',
+        isNoMatch ? 4200 : 3400
       );
     } else {
       setStageStatus(
@@ -911,6 +974,15 @@ function bindEvents() {
 
   dom.skipBtn.addEventListener('click', handleSkip);
   dom.applyFiltersBtn.addEventListener('click', handleApplyFilters);
+  dom.erasAllBtn.addEventListener('click', () => {
+    const allEras = {};
+    for (const era of ART_ERAS) {
+      allEras[era.id] = true;
+    }
+    settings = saveSettings({ ...settings, eras: allEras });
+    syncEraCheckboxes();
+    updateFilterApplyUI();
+  });
   dom.statusRetryBtn.addEventListener('click', () => loadFreshArtwork({ reason: 'retry' }));
   dom.fullscreenBtn.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', updateFullscreenButton);

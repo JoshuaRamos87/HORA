@@ -1,9 +1,9 @@
 /**
  * Live museum API clients for:
  *  - Art Institute of Chicago (api.artic.edu/api/v1) with session pool caching,
- *    multi-ID batch detail fetches (?ids=), and HTTP 429 cooldown routing
+ *    multi-ID batch detail fetches (?ids=), era date/style filtering, and HTTP 429 routing
  *  - The Metropolitan Museum of Art (collectionapi.metmuseum.org/public/collection/v1.1 & /v1)
- *    with session objectID pool caching
+ *    with session objectID pool caching and department + dateBegin/dateEnd era filtering
  *  - Optional Wikipedia / Wikidata context enrichment for Met works
  */
 
@@ -11,16 +11,24 @@ import {
   AIC_RATE_LIMIT_COOLDOWN_MS,
   API_ENDPOINTS,
   ART_CATEGORIES,
+  ART_ERAS,
   VERIFIED_FALLBACK_IDS,
 } from './config.js';
 import {
   classifyAicArtwork,
   classifyMetArtwork,
+  matchesAnyAicEra,
+  matchesAnyMetEra,
   normalizeAicArtwork,
   normalizeMetArtwork,
   textToSafeParagraphs,
 } from './classify.js';
-import { getEnabledCategories, getEnabledMuseums } from './storage.js';
+import {
+  getEnabledCategories,
+  getEnabledEras,
+  getEnabledMuseums,
+  isAllErasEnabled,
+} from './storage.js';
 
 const AIC_SEARCH_FIELDS = [
   'id',
@@ -31,6 +39,12 @@ const AIC_SEARCH_FIELDS = [
   'classification_titles',
   'department_title',
   'medium_display',
+  'date_start',
+  'date_end',
+  'style_title',
+  'style_titles',
+  'place_of_origin',
+  'artist_display',
   'is_on_view',
   'description',
   'short_description',
@@ -42,6 +56,8 @@ const AIC_DETAIL_FIELDS = [
   'artist_display',
   'artist_title',
   'date_display',
+  'date_start',
+  'date_end',
   'place_of_origin',
   'style_title',
   'style_titles',
@@ -64,10 +80,11 @@ const AIC_DETAIL_FIELDS = [
 
 const AIC_BATCH_SIZE = 10;
 const CATEGORY_BY_ID = new Map(ART_CATEGORIES.map((c) => [c.id, c]));
+const ERA_BY_ID = new Map(ART_ERAS.map((e) => [e.id, e]));
 
 // In-memory session caches to minimize API calls during skips & filter previews.
-const aicPoolCache = new Map(); // key `${catId}:${highlightsOnly}` -> Artwork[]
-const metIdPoolCache = new Map(); // key `${catId}:${highlightsOnly}` -> number[]
+const aicPoolCache = new Map(); // key `${catId}:${eraKey}:${highlightsOnly}` -> Artwork[]
+const metIdPoolCache = new Map(); // key `${catId}:${eraKey}:${highlightsOnly}` -> number[]
 let aicCooldownUntil = 0;
 
 /**
@@ -125,8 +142,26 @@ function shuffle(list) {
   return copy;
 }
 
-function poolKey(catId, highlightsOnly) {
-  return `${catId}:${highlightsOnly ? 'hi' : 'all'}`;
+function poolKey(catId, eraKey, highlightsOnly) {
+  return `${catId}:${eraKey}:${highlightsOnly ? 'hi' : 'all'}`;
+}
+
+/**
+ * Builds an Art Institute of Chicago search URL, optionally applying an
+ * Elasticsearch `date_start` range filter when a specific art-history era is active.
+ */
+export function buildAicSearchUrl({ queryTerm, page = 1, limit = 50, era = null }) {
+  const params = [
+    `q=${encodeURIComponent(queryTerm)}`,
+    `limit=${Math.min(100, Math.max(1, limit))}`,
+    `page=${Math.max(1, page)}`,
+    `fields=${AIC_SEARCH_FIELDS}`,
+  ];
+  if (era && typeof era.dateBegin === 'number' && typeof era.dateEnd === 'number') {
+    params.push(`query[range][date_start][gte]=${era.dateBegin}`);
+    params.push(`query[range][date_start][lte]=${era.dateEnd}`);
+  }
+  return `${API_ENDPOINTS.AIC_BASE}/artworks/search?${params.join('&')}`;
 }
 
 /**
@@ -145,7 +180,8 @@ export async function fetchAicArtworkById(id, options = {}) {
 
 /**
  * Batch-fetches multiple authoritative AIC artwork records in a single request
- * using AIC's official `?ids=` multi-ID parameter.
+ * using AIC's official `?ids=` multi-ID parameter, returning raw + normalized pairs
+ * so era rules can be verified against authoritative detail fields.
  */
 export async function fetchAicArtworksByIds(ids, options = {}) {
   const cleanIds = Array.from(new Set(ids.filter(Boolean))).slice(0, AIC_BATCH_SIZE);
@@ -155,7 +191,9 @@ export async function fetchAicArtworksByIds(ids, options = {}) {
     const json = await fetchJson(url, options);
     const iiifBase = json?.config?.iiif_url;
     const rows = Array.isArray(json?.data) ? json.data : [];
-    return rows.map((row) => normalizeAicArtwork(row, iiifBase)).filter(Boolean);
+    return rows
+      .map((raw) => ({ raw, artwork: normalizeAicArtwork(raw, iiifBase) }))
+      .filter((entry) => Boolean(entry.artwork));
   } catch (err) {
     noteAicError(err);
     throw err;
@@ -163,12 +201,19 @@ export async function fetchAicArtworksByIds(ids, options = {}) {
 }
 
 /**
- * Pops a cached, unseen AIC artwork matching any enabled category (0 API calls).
+ * Pops a cached, unseen AIC artwork matching any enabled category and active era (0 API calls).
  */
-function popCachedAicArtwork(enabledCats, highlightsOnly, recentSet) {
+function popCachedAicArtwork(enabledCats, eraKeys, highlightsOnly, recentSet) {
   const enabledSet = new Set(enabledCats);
-  for (const catId of shuffle(enabledCats)) {
-    const key = poolKey(catId, highlightsOnly);
+  const pairs = [];
+  for (const catId of enabledCats) {
+    for (const eraKey of eraKeys) {
+      pairs.push([catId, eraKey]);
+    }
+  }
+
+  for (const [catId, eraKey] of shuffle(pairs)) {
+    const key = poolKey(catId, eraKey, highlightsOnly);
     const bucket = aicPoolCache.get(key);
     if (!bucket || bucket.length === 0) continue;
 
@@ -183,57 +228,104 @@ function popCachedAicArtwork(enabledCats, highlightsOnly, recentSet) {
   return null;
 }
 
+const AIC_CATEGORY_HINTS = {
+  paintings: 'painting',
+  'works-on-paper': 'print drawing',
+  photography: 'photograph',
+  sculpture: 'sculpture',
+  decorative: 'decorative textile ceramic',
+  artifacts: 'artifact',
+};
+
 /**
  * Fetches a random artwork from the Art Institute of Chicago matching the user's
- * enabled categories and highlight preference. Reuses cached batched pools whenever possible.
+ * enabled categories, art-history eras, and highlight preference.
  */
 export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
   const enabledCats = getEnabledCategories(settings);
   if (enabledCats.length === 0) return null;
   const enabledCatSet = new Set(enabledCats);
 
+  const allEras = isAllErasEnabled(settings);
+  const enabledEraIds = getEnabledEras(settings);
+  const selectedEras = allEras ? [] : enabledEraIds.map((id) => ERA_BY_ID.get(id)).filter(Boolean);
+  const cacheEraKeys = allEras ? ['any'] : enabledEraIds;
+
   // 1. Serve instantly from our pre-batched session cache if available (0 network calls).
-  const cached = popCachedAicArtwork(enabledCats, settings.highlightsOnly, recentSet);
+  const cached = popCachedAicArtwork(enabledCats, cacheEraKeys, settings.highlightsOnly, recentSet);
   if (cached) return cached;
 
-  // 2. Otherwise refill a category bucket with 1 search call + 1 batched `?ids=` detail call.
-  const catSequence = [];
-  const shuffled = shuffle(enabledCats);
-  for (let i = 0; i < 3; i++) {
-    catSequence.push(shuffled[i % shuffled.length]);
+  // 2. Build up to 4 (category, era) search attempts.
+  const combos = [];
+  if (allEras) {
+    const shuffledCats = shuffle(enabledCats);
+    for (let i = 0; i < 3; i++) {
+      combos.push({ catId: shuffledCats[i % shuffledCats.length], era: null });
+    }
+  } else {
+    const allPairs = [];
+    for (const era of selectedEras) {
+      for (const catId of enabledCats) {
+        // Skip impossible pre-photography era + photography-only pairings
+        if (catId === 'photography' && era.dateEnd < 1825) continue;
+        allPairs.push({ catId, era });
+      }
+    }
+    if (allPairs.length === 0) return null;
+    const shuffledPairs = shuffle(allPairs);
+    const totalAttempts = Math.min(4, Math.max(3, shuffledPairs.length));
+    for (let i = 0; i < totalAttempts; i++) {
+      combos.push(shuffledPairs[i % shuffledPairs.length]);
+    }
   }
 
-  for (let attemptIdx = 0; attemptIdx < catSequence.length; attemptIdx++) {
+  for (let attemptIdx = 0; attemptIdx < combos.length; attemptIdx++) {
     if (isAicCoolingDown()) return null;
 
-    const catId = catSequence[attemptIdx];
+    const { catId, era } = combos[attemptIdx];
     const cat = CATEGORY_BY_ID.get(catId);
     if (!cat) continue;
 
-    const queryTerm = pickRandom(cat.aicQueries);
-    const maxPage = settings.highlightsOnly ? 4 : 16;
-    const page = attemptIdx === catSequence.length - 1 ? 1 : 1 + Math.floor(Math.random() * maxPage);
+    const eraKey = era ? era.id : 'any';
+    const isFinalAttempt = attemptIdx === combos.length - 1;
+    const maxPage = era ? (settings.highlightsOnly ? 3 : 6) : settings.highlightsOnly ? 4 : 16;
+    const page = isFinalAttempt ? 1 : 1 + Math.floor(Math.random() * maxPage);
 
-    const searchUrl =
-      `${API_ENDPOINTS.AIC_BASE}/artworks/search` +
-      `?q=${encodeURIComponent(queryTerm)}` +
-      `&limit=50&page=${page}&fields=${AIC_SEARCH_FIELDS}`;
+    const queryTerm = era
+      ? `${pickRandom(era.aicQueries)} ${AIC_CATEGORY_HINTS[catId] || ''}`.trim()
+      : pickRandom(cat.aicQueries);
 
-    let searchJson;
-    try {
-      searchJson = await fetchJson(searchUrl, options);
-    } catch (err) {
-      noteAicError(err);
-      if (isAicCoolingDown()) return null;
-      continue;
+    // When era filtering is active, try Elasticsearch date range first; fall back to keyword-only if sparse.
+    const searchCandidates = era
+      ? [
+          buildAicSearchUrl({ queryTerm, page, limit: 50, era }),
+          buildAicSearchUrl({ queryTerm: pickRandom(era.aicQueries), page: 1, limit: 50, era }),
+          buildAicSearchUrl({ queryTerm, page: 1, limit: 50, era: null }),
+        ]
+      : [buildAicSearchUrl({ queryTerm, page, limit: 50, era: null })];
+
+    let matching = [];
+    for (const searchUrl of searchCandidates) {
+      let searchJson;
+      try {
+        searchJson = await fetchJson(searchUrl, options);
+      } catch (err) {
+        noteAicError(err);
+        if (isAicCoolingDown()) return null;
+        continue;
+      }
+
+      const items = Array.isArray(searchJson?.data) ? searchJson.data : [];
+      matching = items.filter((item) => {
+        if (!item || !item.id || !item.image_id) return false;
+        if (recentSet.has(`aic:${item.id}`)) return false;
+        if (!enabledCatSet.has(classifyAicArtwork(item))) return false;
+        if (selectedEras.length > 0 && !matchesAnyAicEra(item, selectedEras)) return false;
+        return true;
+      });
+
+      if (matching.length > 0) break;
     }
-
-    const items = Array.isArray(searchJson?.data) ? searchJson.data : [];
-    const matching = items.filter((item) => {
-      if (!item || !item.id || !item.image_id) return false;
-      if (recentSet.has(`aic:${item.id}`)) return false;
-      return enabledCatSet.has(classifyAicArtwork(item));
-    });
 
     if (matching.length === 0) continue;
 
@@ -246,34 +338,43 @@ export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
     const batchIds = shuffle(pool).slice(0, AIC_BATCH_SIZE).map((item) => item.id);
 
     // Batch-fetch up to 10 full records in a single API call.
-    let detailedBatch = [];
+    let detailedEntries = [];
     try {
-      detailedBatch = await fetchAicArtworksByIds(batchIds, options);
+      detailedEntries = await fetchAicArtworksByIds(batchIds, options);
     } catch {
       if (isAicCoolingDown()) return null;
-      // Graceful single-ID fallback if batch endpoint fails transiently.
       for (const id of batchIds.slice(0, 3)) {
         try {
-          const one = await fetchAicArtworkById(id, options);
-          if (one) detailedBatch.push(one);
-          if (detailedBatch.length > 0) break;
-        } catch {
+          const url = `${API_ENDPOINTS.AIC_BASE}/artworks/${id}?fields=${AIC_DETAIL_FIELDS}`;
+          const json = await fetchJson(url, options);
+          const work = normalizeAicArtwork(json?.data, json?.config?.iiif_url);
+          if (work) detailedEntries.push({ raw: json.data, artwork: work });
+          if (detailedEntries.length > 0) break;
+        } catch (err) {
+          noteAicError(err);
           if (isAicCoolingDown()) return null;
         }
       }
     }
 
     const validWorks = shuffle(
-      detailedBatch.filter((work) => work && !recentSet.has(work.uid) && enabledCatSet.has(work.category))
+      detailedEntries
+        .filter(({ raw, artwork }) => {
+          if (!artwork || recentSet.has(artwork.uid)) return false;
+          if (!enabledCatSet.has(artwork.category)) return false;
+          if (selectedEras.length > 0 && !matchesAnyAicEra(raw, selectedEras)) return false;
+          return true;
+        })
+        .map(({ artwork }) => artwork)
     );
 
     if (validWorks.length === 0) continue;
 
     const chosen = validWorks.pop();
 
-    // Store remaining works into their respective category caches for future skips / filter tests.
+    // Store remaining works into their category+era caches for future skips / filter tests.
     for (const extra of validWorks) {
-      const k = poolKey(extra.category, settings.highlightsOnly);
+      const k = poolKey(extra.category, eraKey, settings.highlightsOnly);
       const list = aicPoolCache.get(k) || [];
       if (!list.some((w) => w.uid === extra.uid)) {
         list.push(extra);
@@ -290,13 +391,27 @@ export async function fetchRandomAicArtwork(settings, recentSet, options = {}) {
 /**
  * Builds a Met v1.1 search URL, ensuring `q` is always the final parameter
  * (documented Met API quirk) and boolean flags use lowercase `true`.
+ * Supports optional integer `dateBegin` & `dateEnd` (negative = BCE).
  */
-export function buildMetSearchUrl({ departmentId, medium, isHighlight, limit = 250, offset = 0, q }) {
+export function buildMetSearchUrl({
+  departmentId,
+  medium,
+  isHighlight,
+  dateBegin,
+  dateEnd,
+  limit = 250,
+  offset = 0,
+  q,
+}) {
   const params = [];
   params.push('hasImages=true');
   if (isHighlight) params.push('isHighlight=true');
   if (departmentId != null) params.push(`departmentId=${encodeURIComponent(departmentId)}`);
   if (medium) params.push(`medium=${encodeURIComponent(medium)}`);
+  if (typeof dateBegin === 'number' && typeof dateEnd === 'number') {
+    params.push(`dateBegin=${Math.trunc(dateBegin)}`);
+    params.push(`dateEnd=${Math.trunc(dateEnd)}`);
+  }
   params.push(`limit=${Math.min(500, Math.max(1, limit))}`);
   if (offset > 0) params.push(`offset=${offset}`);
   // Keep `q` strictly last.
@@ -304,53 +419,85 @@ export function buildMetSearchUrl({ departmentId, medium, isHighlight, limit = 2
   return `${API_ENDPOINTS.MET_SEARCH_V1_1}?${params.join('&')}`;
 }
 
+async function fetchMetRawById(objectId, options = {}) {
+  const url = `${API_ENDPOINTS.MET_OBJECT_V1}/${objectId}`;
+  return fetchJson(url, options);
+}
+
 /**
  * Fetches a single Met object record via /public/collection/v1/objects/{id}.
  * Note: Only /search moved to v1.1; object lookups remain on v1.
  */
 export async function fetchMetArtworkById(objectId, options = {}) {
-  const url = `${API_ENDPOINTS.MET_OBJECT_V1}/${objectId}`;
-  const json = await fetchJson(url, options);
-  return normalizeMetArtwork(json);
+  const raw = await fetchMetRawById(objectId, options);
+  return normalizeMetArtwork(raw);
 }
 
 /**
  * Fetches a random artwork from The Metropolitan Museum of Art matching the user's
- * enabled categories and highlight preference. Reuses cached search objectIDs per bucket.
+ * enabled categories, art-history eras, and highlight preference.
  */
 export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
   const enabledCats = getEnabledCategories(settings);
   if (enabledCats.length === 0) return null;
   const enabledCatSet = new Set(enabledCats);
 
-  const catSequence = [];
-  const shuffled = shuffle(enabledCats);
-  for (let i = 0; i < 3; i++) {
-    catSequence.push(shuffled[i % shuffled.length]);
+  const allEras = isAllErasEnabled(settings);
+  const enabledEraIds = getEnabledEras(settings);
+  const selectedEras = allEras ? [] : enabledEraIds.map((id) => ERA_BY_ID.get(id)).filter(Boolean);
+
+  // Build valid (category, era, matchingDepartments) attempts.
+  const combos = [];
+  if (allEras) {
+    const shuffledCats = shuffle(enabledCats);
+    for (let i = 0; i < 3; i++) {
+      const catId = shuffledCats[i % shuffledCats.length];
+      const cat = CATEGORY_BY_ID.get(catId);
+      if (cat) combos.push({ catId, cat, era: null, departments: cat.metDepartments });
+    }
+  } else {
+    const validPairs = [];
+    for (const era of selectedEras) {
+      const eraDeptSet = new Set(era.metDepartments);
+      for (const catId of enabledCats) {
+        const cat = CATEGORY_BY_ID.get(catId);
+        if (!cat) continue;
+        const intersection = cat.metDepartments.filter((d) => eraDeptSet.has(d));
+        if (intersection.length > 0) {
+          validPairs.push({ catId, cat, era, departments: intersection });
+        }
+      }
+    }
+    if (validPairs.length === 0) return null;
+    const shuffledPairs = shuffle(validPairs);
+    const totalAttempts = Math.min(4, Math.max(3, shuffledPairs.length));
+    for (let i = 0; i < totalAttempts; i++) {
+      combos.push(shuffledPairs[i % shuffledPairs.length]);
+    }
   }
 
-  for (const catId of catSequence) {
-    const cat = CATEGORY_BY_ID.get(catId);
-    if (!cat) continue;
-
-    const key = poolKey(catId, settings.highlightsOnly);
+  for (const { catId, cat, era, departments } of combos) {
+    const eraKey = era ? era.id : 'any';
+    const key = poolKey(catId, eraKey, settings.highlightsOnly);
     let cachedIds = metIdPoolCache.get(key) || [];
     cachedIds = cachedIds.filter((id) => !recentSet.has(`met:${id}`));
 
     // Refill the cached ID pool only when depleted, avoiding redundant /v1.1/search calls.
     if (cachedIds.length < 6) {
-      const departmentId = pickRandom(cat.metDepartments);
-      const queryTerm = pickRandom(cat.metQueries);
+      const departmentId = pickRandom(departments);
+      const queryTerm = era ? pickRandom(era.metQueries) : pickRandom(cat.metQueries);
+      const dateParams = era ? { dateBegin: era.dateBegin, dateEnd: era.dateEnd } : {};
 
       const attempts = settings.highlightsOnly
         ? [
-            { departmentId, medium: cat.metMedium, isHighlight: true, q: queryTerm },
-            { departmentId, medium: null, isHighlight: true, q: 'a' },
-            { departmentId, medium: cat.metMedium, isHighlight: false, q: queryTerm },
+            { departmentId, medium: cat.metMedium, isHighlight: true, ...dateParams, q: queryTerm },
+            { departmentId, medium: null, isHighlight: true, ...dateParams, q: '*' },
+            { departmentId, medium: cat.metMedium, isHighlight: false, ...dateParams, q: queryTerm },
+            ...(era ? [{ departmentId, medium: null, isHighlight: false, ...dateParams, q: '*' }] : []),
           ]
         : [
-            { departmentId, medium: cat.metMedium, isHighlight: false, q: queryTerm },
-            { departmentId, medium: null, isHighlight: false, q: queryTerm },
+            { departmentId, medium: cat.metMedium, isHighlight: false, ...dateParams, q: queryTerm },
+            { departmentId, medium: null, isHighlight: false, ...dateParams, q: era ? '*' : queryTerm },
           ];
 
       for (const attempt of attempts) {
@@ -372,18 +519,20 @@ export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
 
     if (cachedIds.length === 0) continue;
 
-    // Probe up to 10 IDs, popping each tried ID so bad/404 IDs are never retried.
-    const maxProbes = Math.min(10, cachedIds.length);
+    // Probe up to 12 IDs, popping each tried ID so bad/404/mismatched IDs are never retried.
+    const maxProbes = Math.min(12, cachedIds.length);
     for (let p = 0; p < maxProbes; p++) {
       const objectId = cachedIds.pop();
       metIdPoolCache.set(key, cachedIds);
       if (objectId == null || recentSet.has(`met:${objectId}`)) continue;
 
       try {
-        const artwork = await fetchMetArtworkById(objectId, options);
-        if (artwork && artwork.imageUrls.length > 0 && enabledCatSet.has(artwork.category)) {
-          return artwork;
-        }
+        const raw = await fetchMetRawById(objectId, options);
+        const artwork = normalizeMetArtwork(raw);
+        if (!artwork || artwork.imageUrls.length === 0) continue;
+        if (!enabledCatSet.has(artwork.category)) continue;
+        if (selectedEras.length > 0 && !matchesAnyMetEra(raw, selectedEras)) continue;
+        return artwork;
       } catch {
         // Met search occasionally lists IDs that return 404 on /v1/objects/{id}; skip quietly.
       }
@@ -401,9 +550,9 @@ export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
 export async function fetchNextArtwork(settings, recentIds = [], lastSource = null, options = {}) {
   const recentSet = new Set(recentIds);
   const enabledMuseums = getEnabledMuseums(settings);
+  const allEras = isAllErasEnabled(settings);
+  const enabledEraSet = new Set(getEnabledEras(settings));
 
-  // Order enabled museums: gently prefer the other museum for variety,
-  // and deprioritize AIC if it recently signaled HTTP 429.
   let museumOrder = shuffle(enabledMuseums);
   if (museumOrder.length > 1) {
     if (isAicCoolingDown()) {
@@ -425,13 +574,18 @@ export async function fetchNextArtwork(settings, recentIds = [], lastSource = nu
     }
   }
 
-  // Last-resort verified fallback IDs (respecting enabled museums & categories when possible).
+  // Last-resort verified fallback IDs: strictly honor active eras & categories when era-filtering is on.
   const enabledCatSet = new Set(getEnabledCategories(settings));
   for (const museumId of museumOrder) {
     if (museumId === 'aic' && isAicCoolingDown()) continue;
     const candidates = shuffle(VERIFIED_FALLBACK_IDS[museumId] || []);
-    const preferred = candidates.filter((c) => enabledCatSet.has(c.category));
-    const pool = preferred.length > 0 ? preferred : candidates;
+    const matching = candidates.filter((c) => {
+      if (!enabledCatSet.has(c.category)) return false;
+      if (!allEras && (!c.era || !enabledEraSet.has(c.era))) return false;
+      return true;
+    });
+
+    const pool = allEras && matching.length === 0 ? candidates : matching;
     for (const entry of pool) {
       try {
         const artwork =
@@ -443,6 +597,12 @@ export async function fetchNextArtwork(settings, recentIds = [], lastSource = nu
         // Continue fallback chain
       }
     }
+  }
+
+  if (!allEras) {
+    throw new Error(
+      'No artworks matched that exact combination of era and art type. Try enabling another art type or era.'
+    );
   }
 
   throw new Error('Could not reach the museum collections right now. Please try again in a moment.');

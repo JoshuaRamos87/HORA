@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_SKIPS_PER_HOUR, STORAGE_KEYS } from '../js/config.js';
+import { ART_ERAS, MAX_SKIPS_PER_HOUR, STORAGE_KEYS } from '../js/config.js';
 import {
   formatCountdown,
   getCurrentHourKey,
@@ -10,9 +10,11 @@ import {
 } from '../js/clock.js';
 import {
   canSkipInHour,
+  getEnabledEras,
   getFilterSignature,
   getSkipsRemainingInHour,
   getSkipsUsedInHour,
+  isAllErasEnabled,
   loadGalleryState,
   loadSettings,
   normalizeSettings,
@@ -24,11 +26,14 @@ import {
   buildAicImageUrls,
   classifyAicArtwork,
   classifyMetArtwork,
+  matchesAicEra,
+  matchesMetEra,
   normalizeAicArtwork,
   normalizeMetArtwork,
   sanitizeArtHtml,
 } from '../js/classify.js';
 import {
+  buildAicSearchUrl,
   buildMetSearchUrl,
   clearApiCaches,
   enrichArtworkContext,
@@ -530,4 +535,155 @@ test('zoom math clamps 100%-400%, enforces viewport pan bounds, and anchors foca
   });
   assert.equal(overPinch.scale, 4);
 });
+
+test('art-history eras strictly match authentic movements and exclude unrelated global art from the same dates', () => {
+  const baroque = ART_ERAS.find((e) => e.id === 'baroque-rococo');
+  const neoclassic = ART_ERAS.find((e) => e.id === 'neoclassicism-romanticism');
+  const ancient = ART_ERAS.find((e) => e.id === 'ancient');
+
+  // Legacy settings without `eras` default cleanly to all eras enabled
+  const migrated = normalizeSettings({ framing: 'ambient' });
+  assert.equal(isAllErasEnabled(migrated), true);
+  assert.equal(getEnabledEras(migrated).length, ART_ERAS.length);
+
+  // Disabling all eras restores safe all-enabled default
+  const allOff = Object.fromEntries(ART_ERAS.map((e) => [e.id, false]));
+  assert.equal(isAllErasEnabled(normalizeSettings({ eras: allOff })), true);
+
+  // Filter signature changes when eras change
+  const onlyBaroqueSettings = normalizeSettings({
+    eras: { ...allOff, 'baroque-rococo': true },
+  });
+  assert.equal(isAllErasEnabled(onlyBaroqueSettings), false);
+  assert.notEqual(getFilterSignature(migrated), getFilterSignature(onlyBaroqueSettings));
+
+  // Met Baroque & Rococo: accepts Rembrandt (1658, European Paintings) & rejects Edo Japanese screen (1650)
+  assert.equal(
+    matchesMetEra(
+      {
+        objectBeginDate: 1658,
+        objectEndDate: 1658,
+        department: 'European Paintings',
+        artistNationality: 'Dutch',
+      },
+      baroque
+    ),
+    true
+  );
+  assert.equal(
+    matchesMetEra(
+      {
+        objectBeginDate: 1650,
+        objectEndDate: 1670,
+        department: 'Asian Art',
+        culture: 'Japan',
+        period: 'Edo period (1615–1868)',
+      },
+      baroque
+    ),
+    false
+  );
+  // Rejects undated Met 0-0 records
+  assert.equal(
+    matchesMetEra(
+      {
+        objectBeginDate: 0,
+        objectEndDate: 0,
+        objectDate: '',
+        department: 'Egyptian Art',
+        culture: 'Egyptian',
+      },
+      ancient
+    ),
+    false
+  );
+
+  // AIC Baroque & Rococo: accepts Boucher (1750, France) & rejects Qing Chinese porcelain (1740, China)
+  assert.equal(
+    matchesAicEra(
+      {
+        date_start: 1750,
+        date_end: 1750,
+        style_title: 'Rococo',
+        place_of_origin: 'France',
+        department_title: 'Painting and Sculpture of Europe',
+      },
+      baroque
+    ),
+    true
+  );
+  assert.equal(
+    matchesAicEra(
+      {
+        date_start: 1740,
+        date_end: 1750,
+        style_title: 'Qing dynasty',
+        place_of_origin: 'China',
+        department_title: 'Arts of Asia',
+      },
+      baroque
+    ),
+    false
+  );
+
+  // Western scope (Neoclassicism & Romanticism) accepts American Hudson River School (1836)
+  assert.equal(
+    matchesMetEra(
+      {
+        objectBeginDate: 1836,
+        objectEndDate: 1836,
+        department: 'The American Wing',
+        artistNationality: 'American',
+      },
+      neoclassic
+    ),
+    true
+  );
+
+  // URL builders emit exact date range parameters
+  const aicUrl = buildAicSearchUrl({ queryTerm: 'baroque painting', page: 1, limit: 50, era: baroque });
+  assert.ok(aicUrl.includes('query[range][date_start][gte]=1600'));
+  assert.ok(aicUrl.includes('query[range][date_start][lte]=1780'));
+
+  const metUrl = buildMetSearchUrl({
+    departmentId: 11,
+    dateBegin: 1600,
+    dateEnd: 1780,
+    isHighlight: true,
+    q: 'portrait',
+  });
+  assert.ok(metUrl.includes('dateBegin=1600&dateEnd=1780'));
+  assert.ok(metUrl.endsWith('&q=portrait'));
+});
+
+test('strict era filtering rejects incompatible combos (e.g. Photography + Baroque) without falling back to wrong eras', async () => {
+  clearApiCaches();
+  const allOffEras = Object.fromEntries(ART_ERAS.map((e) => [e.id, false]));
+  const impossible = normalizeSettings({
+    museums: { aic: true, met: true },
+    categories: {
+      paintings: false,
+      'works-on-paper': false,
+      photography: true,
+      sculpture: false,
+      decorative: false,
+      artifacts: false,
+    },
+    eras: { ...allOffEras, 'baroque-rococo': true },
+  });
+
+  let fetchCount = 0;
+  const mockFetch = async () => {
+    fetchCount++;
+    return { ok: true, status: 200, json: async () => ({ data: [], objectIDs: [] }) };
+  };
+
+  await assert.rejects(
+    () => fetchNextArtwork(impossible, [], null, { fetchImpl: mockFetch }),
+    /No artworks matched that exact combination/
+  );
+  // Both AIC and Met immediately detect Photography + Baroque is pre-photography without wasting API calls!
+  assert.equal(fetchCount, 0);
+});
+
 

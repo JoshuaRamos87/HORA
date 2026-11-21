@@ -345,3 +345,164 @@ function uniqueNonEmpty(list) {
   }
   return out;
 }
+
+/* ==========================================================================
+   Art-History Era Matching (Chronology + Curatorial Movement / Region)
+   ========================================================================== */
+
+const NON_EUROPEAN_RE =
+  /\b(japanese|japan|chinese|china|korean|korea|asian|asia|indian|india|islamic|iranian|iran|persian|ottoman|turkish|african|africa|oceanic|oceania|pre-columbian|mexican|mexico|peruvian|peru|american|united states|u\.s\.a\.|canadian|edo|qing|ming|meiji|mughal|joseon|safavid|tibetan|thai|cambodian|indonesian|polynesian|aztec|maya|inca)\b/i;
+
+const NON_WESTERN_RE =
+  /\b(japanese|japan|chinese|china|korean|korea|asian|asia|indian|india|islamic|iranian|iran|persian|ottoman|turkish|african|africa|oceanic|oceania|pre-columbian|edo|qing|ming|meiji|mughal|joseon|safavid|tibetan|thai|cambodian|indonesian|polynesian|aztec|maya|inca)\b/i;
+
+const EUROPEAN_ORIGIN_RE =
+  /\b(european|europe|italian|italy|french|france|dutch|netherlands|holland|flemish|flanders|netherlandish|belgian|belgium|german|germany|spanish|spain|british|english|england|scottish|scotland|irish|ireland|austrian|austria|swiss|switzerland|bohemian|czech|polish|poland|russian|russia|swedish|sweden|danish|denmark|norwegian|norway|portuguese|portugal|hungarian|hungary|venetian|florentine|roman|neapolitan|bolognese|lombard|sienese|byzantine|gothic|greek|greece|medieval|cloisters|paris|london|rome|venice|florence|amsterdam|antwerp|madrid|vienna)\b/i;
+
+const WESTERN_ORIGIN_RE =
+  /\b(american|united states|new york|boston|philadelphia|chicago|canadian|canada)\b/i;
+
+const ANCIENT_SCOPE_RE =
+  /\b(ancient|egypt|egyptian|greek|greece|roman|rome|etruscan|mesopotam|assyria|assyrian|babylon|babylonian|sumer|sumerian|mediterranean|near east|near eastern|cycladic|minoan|mycenaean|hellenistic|classical|prehistoric|neolithic|paleolithic|phoenician|cypriot|anatolian|levant|achaemenid|byzantine|celtic)\b/i;
+
+function isYearInEra(startYear, endYear, era) {
+  const hasStart = typeof startYear === 'number' && Number.isFinite(startYear);
+  const hasEnd = typeof endYear === 'number' && Number.isFinite(endYear);
+  if (!hasStart && !hasEnd) return false;
+
+  const s = hasStart ? startYear : endYear;
+  const e = hasEnd ? endYear : startYear;
+  // Guard against overly vague date ranges on post-ancient works (e.g. 1500-2000)
+  if (era.id !== 'ancient' && Math.abs(e - s) > 250) {
+    return false;
+  }
+  const mid = (s + e) / 2;
+  return mid >= era.dateBegin && mid <= era.dateEnd;
+}
+
+function matchesRegionScope({ scope, dept, originText, styleText, era }) {
+  if (scope === 'any') return true;
+
+  const deptLow = dept.toLowerCase();
+  const originLow = originText.toLowerCase();
+  const styleLow = styleText.toLowerCase();
+  const allText = `${deptLow} ${originLow} ${styleLow}`;
+
+  if (scope === 'ancient') {
+    if (/\b(arts of asia|asian art|islamic art|arts of africa|oceania|americas)\b/i.test(deptLow)) {
+      return false;
+    }
+    return ANCIENT_SCOPE_RE.test(allText);
+  }
+
+  if (scope === 'europe') {
+    if (NON_EUROPEAN_RE.test(deptLow) || NON_EUROPEAN_RE.test(originLow)) {
+      return false;
+    }
+    if (Array.isArray(era.aicStyles) && styleLow) {
+      if (era.aicStyles.some((s) => styleLow.includes(s))) return true;
+    }
+    if (/\b(europe|european|medieval|cloisters|lehman)\b/i.test(deptLow)) {
+      return true;
+    }
+    return EUROPEAN_ORIGIN_RE.test(allText);
+  }
+
+  if (scope === 'western') {
+    if (NON_WESTERN_RE.test(deptLow) || NON_WESTERN_RE.test(originLow)) {
+      return false;
+    }
+    if (Array.isArray(era.aicStyles) && styleLow) {
+      if (era.aicStyles.some((s) => styleLow.includes(s))) return true;
+    }
+    if (/\b(europe|european|american|americas|lehman)\b/i.test(deptLow)) {
+      return true;
+    }
+    return EUROPEAN_ORIGIN_RE.test(allText) || WESTERN_ORIGIN_RE.test(allText);
+  }
+
+  return true;
+}
+
+/**
+ * Checks whether an Art Institute of Chicago record belongs to a specific art-history era.
+ */
+export function matchesAicEra(record, era) {
+  if (!record || !era) return false;
+
+  const start = typeof record.date_start === 'number' ? record.date_start : null;
+  const end = typeof record.date_end === 'number' ? record.date_end : null;
+  if (!isYearInEra(start, end, era)) return false;
+
+  const styleText = [
+    record.style_title,
+    ...(Array.isArray(record.style_titles) ? record.style_titles : []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const originText = [record.place_of_origin, record.artist_display]
+    .filter(Boolean)
+    .join(' ');
+
+  return matchesRegionScope({
+    scope: era.regionScope,
+    dept: String(record.department_title || ''),
+    originText,
+    styleText,
+    era,
+  });
+}
+
+export function matchesAnyAicEra(record, eras) {
+  if (!Array.isArray(eras) || eras.length === 0) return true;
+  return eras.some((era) => matchesAicEra(record, era));
+}
+
+/**
+ * Checks whether a Met Collection record belongs to a specific art-history era.
+ */
+export function matchesMetEra(record, era) {
+  if (!record || !era) return false;
+
+  const rawStart = typeof record.objectBeginDate === 'number' ? record.objectBeginDate : null;
+  const rawEnd = typeof record.objectEndDate === 'number' ? record.objectEndDate : null;
+
+  // The Met encodes undated objects as objectBeginDate: 0, objectEndDate: 0.
+  const isUndatedZero =
+    rawStart === 0 &&
+    rawEnd === 0 &&
+    !/\b(b\.?c\.?|a\.?d\.?|1st century|\b0\b)\b/i.test(String(record.objectDate || ''));
+  if (isUndatedZero) return false;
+
+  if (!isYearInEra(rawStart, rawEnd, era)) return false;
+
+  const originText = [
+    record.culture,
+    record.country,
+    record.region,
+    record.city,
+    record.artistNationality,
+    record.artistDisplayBio,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const styleText = [record.period, record.dynasty, record.reign]
+    .filter(Boolean)
+    .join(' ');
+
+  return matchesRegionScope({
+    scope: era.regionScope,
+    dept: String(record.department || ''),
+    originText,
+    styleText,
+    era,
+  });
+}
+
+export function matchesAnyMetEra(record, eras) {
+  if (!Array.isArray(eras) || eras.length === 0) return true;
+  return eras.some((era) => matchesMetEra(record, era));
+}
+

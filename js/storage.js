@@ -5,6 +5,7 @@
 
 import {
   ART_CATEGORIES,
+  ART_ERAS,
   DEFAULT_SETTINGS,
   FRAMING_MODES,
   MAX_SKIPS_PER_HOUR,
@@ -32,8 +33,8 @@ function safeParse(raw) {
 }
 
 /**
- * Ensures loaded settings always have valid museums, categories (at least 1 each),
- * and a valid framing mode.
+ * Ensures loaded settings always have valid museums, categories, eras
+ * (at least 1 enabled in each group), and a valid framing mode.
  */
 export function normalizeSettings(input) {
   const src = input && typeof input === 'object' ? input : {};
@@ -66,7 +67,20 @@ export function normalizeSettings(input) {
     }
   }
 
-  return { framing, highlightsOnly, museums, categories };
+  const eras = {};
+  for (const e of ART_ERAS) {
+    eras[e.id] =
+      src.eras && typeof src.eras[e.id] === 'boolean'
+        ? src.eras[e.id]
+        : DEFAULT_SETTINGS.eras[e.id];
+  }
+  if (!Object.values(eras).some(Boolean)) {
+    for (const e of ART_ERAS) {
+      eras[e.id] = true;
+    }
+  }
+
+  return { framing, highlightsOnly, museums, categories, eras };
 }
 
 export function loadSettings(customStorage) {
@@ -96,8 +110,17 @@ export function getEnabledCategories(settings) {
   return ART_CATEGORIES.map((c) => c.id).filter((id) => settings.categories[id]);
 }
 
+export function getEnabledEras(settings) {
+  const eraMap = settings?.eras || DEFAULT_SETTINGS.eras;
+  return ART_ERAS.map((e) => e.id).filter((id) => eraMap[id] !== false);
+}
+
+export function isAllErasEnabled(settings) {
+  return getEnabledEras(settings).length === ART_ERAS.length;
+}
+
 /**
- * Stable signature of the curatorial filter settings (museums, art types, highlights),
+ * Stable signature of the curatorial filter settings (museums, art types, eras, highlights),
  * excluding visual framing preferences so Apply Filters only triggers on collection changes.
  */
 export function getFilterSignature(settings) {
@@ -105,6 +128,7 @@ export function getFilterSignature(settings) {
   return JSON.stringify({
     museums: getEnabledMuseums(normalized),
     categories: getEnabledCategories(normalized),
+    eras: getEnabledEras(normalized),
     highlightsOnly: normalized.highlightsOnly,
   });
 }
