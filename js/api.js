@@ -486,18 +486,19 @@ export async function fetchRandomMetArtwork(settings, recentSet, options = {}) {
     if (cachedIds.length < 6) {
       const departmentId = pickRandom(departments);
       const queryTerm = era ? pickRandom(era.metQueries) : pickRandom(cat.metQueries);
+      const fallbackQuery = era?.metFallbackQuery || '*';
       const dateParams = era ? { dateBegin: era.dateBegin, dateEnd: era.dateEnd } : {};
 
       const attempts = settings.highlightsOnly
         ? [
             { departmentId, medium: cat.metMedium, isHighlight: true, ...dateParams, q: queryTerm },
-            { departmentId, medium: null, isHighlight: true, ...dateParams, q: '*' },
+            { departmentId, medium: null, isHighlight: true, ...dateParams, q: fallbackQuery },
             { departmentId, medium: cat.metMedium, isHighlight: false, ...dateParams, q: queryTerm },
-            ...(era ? [{ departmentId, medium: null, isHighlight: false, ...dateParams, q: '*' }] : []),
+            ...(era ? [{ departmentId, medium: null, isHighlight: false, ...dateParams, q: fallbackQuery }] : []),
           ]
         : [
             { departmentId, medium: cat.metMedium, isHighlight: false, ...dateParams, q: queryTerm },
-            { departmentId, medium: null, isHighlight: false, ...dateParams, q: era ? '*' : queryTerm },
+            { departmentId, medium: null, isHighlight: false, ...dateParams, q: era ? fallbackQuery : queryTerm },
           ];
 
       for (const attempt of attempts) {

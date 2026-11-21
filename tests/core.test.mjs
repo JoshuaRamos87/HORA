@@ -749,5 +749,173 @@ test('theme settings default to system, persist light/dark overrides, resolve OS
   assert.equal(sigSystem, sigDark);
 });
 
+test('East Asian eras strictly isolate Japan and China, allow Early Imperial China spans, and migrate custom era filters cleanly', async () => {
+  clearApiCaches();
+
+  const japanClassical = ART_ERAS.find((e) => e.id === 'japan-classical');
+  const japanEdo = ART_ERAS.find((e) => e.id === 'japan-edo');
+  const japanModern = ART_ERAS.find((e) => e.id === 'japan-modern');
+  const chinaEarly = ART_ERAS.find((e) => e.id === 'china-early');
+  const chinaSongYuan = ART_ERAS.find((e) => e.id === 'china-song-yuan');
+  const chinaMingQing = ART_ERAS.find((e) => e.id === 'china-ming-qing');
+  const baroque = ART_ERAS.find((e) => e.id === 'baroque-rococo');
+
+  assert.equal(ART_ERAS.length, 14);
+  assert.ok(japanClassical && japanEdo && japanModern && chinaEarly && chinaSongYuan && chinaMingQing);
+
+  // Edo Japan (Hokusai, 1831) matches japan-edo and NEVER matches China or Baroque
+  const hokusaiAic = {
+    date_start: 1830,
+    date_end: 1833,
+    place_of_origin: 'Japan',
+    style_title: 'Japanese (culture or style)',
+    department_title: 'Arts of Asia',
+    artist_display: 'Katsushika Hokusai (Japanese, 1760–1849)',
+  };
+  assert.equal(matchesAicEra(hokusaiAic, japanEdo), true);
+  assert.equal(matchesAicEra(hokusaiAic, chinaMingQing), false);
+  assert.equal(matchesAicEra(hokusaiAic, baroque), false);
+
+  // French Japonisme print from 1890 does NOT match Meiji & Modern Japan
+  const frenchJaponisme = {
+    date_start: 1890,
+    date_end: 1890,
+    place_of_origin: 'France',
+    style_title: 'Japonisme',
+    department_title: 'Prints and Drawings',
+    artist_display: 'Henri de Toulouse-Lautrec (French, 1864–1901)',
+  };
+  assert.equal(matchesAicEra(frenchJaponisme, japanModern), false);
+
+  // Ming & Qing Chinese porcelain matches china-ming-qing and NEVER matches Edo Japan or Baroque
+  const qingMet = {
+    objectBeginDate: 1736,
+    objectEndDate: 1795,
+    department: 'Asian Art',
+    culture: 'China',
+    period: 'Qing dynasty (1644–1911), Qianlong period (1736–95)',
+  };
+  assert.equal(matchesMetEra(qingMet, chinaMingQing), true);
+  assert.equal(matchesMetEra(qingMet, japanEdo), false);
+  assert.equal(matchesMetEra(qingMet, baroque), false);
+
+  // Early Imperial China allows wide dynastic spans (e.g., Shang dynasty 1300–1046 BCE)
+  const shangBronzeMet = {
+    objectBeginDate: -1300,
+    objectEndDate: -1046,
+    department: 'Asian Art',
+    culture: 'China',
+    period: 'Shang dynasty (1600–1046 B.C.)',
+  };
+  assert.equal(matchesMetEra(shangBronzeMet, chinaEarly), true);
+  assert.equal(matchesMetEra(shangBronzeMet, japanClassical), false);
+
+  // Song landscape painting matches china-song-yuan and rejects Kamakura Japan
+  const songMet = {
+    objectBeginDate: 1180,
+    objectEndDate: 1220,
+    department: 'Asian Art',
+    culture: 'China',
+    period: 'Southern Song dynasty (1127–1279)',
+  };
+  assert.equal(matchesMetEra(songMet, chinaSongYuan), true);
+  assert.equal(matchesMetEra(songMet, japanClassical), false);
+
+  // Pre-1825 photography guard works for pre-modern East Asian eras too
+  const allOff = Object.fromEntries(ART_ERAS.map((e) => [e.id, false]));
+  assert.equal(isPhotographyAvailableForEras(normalizeSettings({ eras: { ...allOff, 'japan-classical': true } })), false);
+  assert.equal(isPhotographyAvailableForEras(normalizeSettings({ eras: { ...allOff, 'china-early': true } })), false);
+  assert.equal(isPhotographyAvailableForEras(normalizeSettings({ eras: { ...allOff, 'china-song-yuan': true } })), false);
+  assert.equal(isPhotographyAvailableForEras(normalizeSettings({ eras: { ...allOff, 'japan-edo': true } })), true);
+  assert.equal(isPhotographyAvailableForEras(normalizeSettings({ eras: { ...allOff, 'japan-modern': true } })), true);
+  assert.equal(isPhotographyAvailableForEras(normalizeSettings({ eras: { ...allOff, 'china-ming-qing': true } })), true);
+
+  // Smart migration: legacy all-8-enabled users automatically get all 14 enabled,
+  // while legacy custom-narrowed users keep ONLY their narrowed selection
+  const legacyAll8 = normalizeSettings({
+    eras: {
+      ancient: true,
+      medieval: true,
+      renaissance: true,
+      'baroque-rococo': true,
+      'neoclassicism-romanticism': true,
+      'realism-impressionism': true,
+      modern: true,
+      contemporary: true,
+    },
+  });
+  assert.equal(isAllErasEnabled(legacyAll8), true);
+  assert.equal(legacyAll8.eras['japan-edo'], true);
+  assert.equal(legacyAll8.eras['china-ming-qing'], true);
+
+  const legacyBaroqueOnly = normalizeSettings({
+    eras: {
+      ancient: false,
+      medieval: false,
+      renaissance: false,
+      'baroque-rococo': true,
+      'neoclassicism-romanticism': false,
+      'realism-impressionism': false,
+      modern: false,
+      contemporary: false,
+    },
+  });
+  assert.equal(legacyBaroqueOnly.eras['baroque-rococo'], true);
+  assert.equal(legacyBaroqueOnly.eras['japan-edo'], false);
+  assert.equal(legacyBaroqueOnly.eras['china-ming-qing'], false);
+
+  // Met search for Edo Japan anchors fallback query to 'Japan' rather than wildcard '*'
+  const metEdoOnly = normalizeSettings({
+    museums: { aic: false, met: true },
+    categories: {
+      paintings: false,
+      'works-on-paper': true,
+      photography: false,
+      sculpture: false,
+      decorative: false,
+      artifacts: false,
+    },
+    eras: { ...allOff, 'japan-edo': true },
+  });
+
+  const requestedUrls = [];
+  const mockFetch = async (url) => {
+    requestedUrls.push(url);
+    if (url.includes('/v1.1/search')) {
+      // Return empty on first specific query so fallback query fires
+      if (requestedUrls.length === 1) {
+        return { ok: true, status: 200, json: async () => ({ total: 0, objectIDs: null }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ total: 1, objectIDs: [45434] }) };
+    }
+    if (url.endsWith('/v1/objects/45434')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          objectID: 45434,
+          title: 'Under the Wave off Kanagawa',
+          artistDisplayName: 'Katsushika Hokusai',
+          objectBeginDate: 1830,
+          objectEndDate: 1832,
+          department: 'Asian Art',
+          culture: 'Japan',
+          period: 'Edo period (1615–1868)',
+          classification: 'Prints',
+          objectName: 'Woodblock print',
+          primaryImage: 'https://images.metmuseum.org/wave.jpg',
+        }),
+      };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+
+  const work = await fetchNextArtwork(metEdoOnly, [], null, { fetchImpl: mockFetch });
+  assert.equal(work.uid, 'met:45434');
+  assert.equal(work.category, 'works-on-paper');
+  assert.ok(requestedUrls[1].endsWith('&q=Japan'));
+});
+
+
 
 

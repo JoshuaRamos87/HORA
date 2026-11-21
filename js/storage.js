@@ -70,11 +70,16 @@ export function normalizeSettings(input) {
   }
 
   const eras = {};
+  const hasSavedEras = Boolean(src.eras && typeof src.eras === 'object');
+  const hadCustomEraExclusions =
+    hasSavedEras && Object.values(src.eras).some((v) => v === false);
+
   for (const e of ART_ERAS) {
-    eras[e.id] =
-      src.eras && typeof src.eras[e.id] === 'boolean'
-        ? src.eras[e.id]
-        : DEFAULT_SETTINGS.eras[e.id];
+    if (hasSavedEras && typeof src.eras[e.id] === 'boolean') {
+      eras[e.id] = src.eras[e.id];
+    } else {
+      eras[e.id] = hadCustomEraExclusions ? false : DEFAULT_SETTINGS.eras[e.id];
+    }
   }
   if (!Object.values(eras).some(Boolean)) {
     for (const e of ART_ERAS) {

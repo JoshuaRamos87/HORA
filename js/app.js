@@ -5,6 +5,7 @@
 
 import {
   ART_CATEGORIES,
+  ART_ERA_GROUPS,
   ART_ERAS,
   FILTER_APPLY_COOLDOWN_MS,
   FRAMING_MODES,
@@ -355,6 +356,24 @@ function syncCategoryAvailability() {
   }
 }
 
+function syncEraGroupSummaries() {
+  for (const group of ART_ERA_GROUPS) {
+    const groupEras = ART_ERAS.filter((e) => e.group === group.id);
+    const activeCount = groupEras.filter((e) => Boolean(settings.eras[e.id])).length;
+    const total = groupEras.length;
+    const badge = dom.eraToggles.querySelector(`[data-era-group-count="${group.id}"]`);
+    if (badge) {
+      badge.textContent = `${activeCount}/${total}`;
+      badge.classList.toggle('is-partial', activeCount > 0 && activeCount < total);
+      badge.classList.toggle('is-empty', activeCount === 0);
+    }
+    const details = dom.eraToggles.querySelector(`[data-era-group="${group.id}"]`);
+    if (details) {
+      details.classList.toggle('is-empty', activeCount === 0);
+    }
+  }
+}
+
 function updateFilterApplyUI() {
   const pending = hasPendingFilterChanges();
   const compatible = hasCompatibleCategoryForEras(settings);
@@ -362,6 +381,7 @@ function updateFilterApplyUI() {
   const inCooldown = now < filterCooldownUntil;
 
   syncCategoryAvailability();
+  syncEraGroupSummaries();
   dom.erasAllBtn.disabled = isAllErasEnabled(settings);
   dom.applyFiltersBtn.disabled = !pending || !compatible || isLoadingArtwork || inCooldown;
 
@@ -434,6 +454,27 @@ function syncEraCheckboxes() {
     const el = document.getElementById(`toggle-era-${era.id}`);
     if (el) el.checked = Boolean(settings.eras[era.id]);
   }
+  syncEraGroupSummaries();
+}
+
+function createEraGroupChevron() {
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('class', 'era-group-chevron');
+  svg.setAttribute('width', '14');
+  svg.setAttribute('height', '14');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.9');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const poly = document.createElementNS(svgNS, 'polyline');
+  poly.setAttribute('points', '6 9 12 15 18 9');
+  svg.append(poly);
+  return svg;
 }
 
 function renderFilterSettings() {
@@ -486,34 +527,100 @@ function renderFilterSettings() {
   }
 
   dom.eraToggles.innerHTML = '';
-  for (const era of ART_ERAS) {
-    dom.eraToggles.append(
-      createToggleRow({
-        id: `toggle-era-${era.id}`,
-        title: era.label,
-        desc: era.description,
-        checked: Boolean(settings.eras[era.id]),
-        onChange: (input) => {
-          const nextEras = { ...settings.eras, [era.id]: input.checked };
-          if (!Object.values(nextEras).some(Boolean)) {
-            input.checked = true;
-            showToast('Keep at least one era enabled');
-            return;
-          }
-          settings = saveSettings({ ...settings, eras: nextEras });
-          updateFilterApplyUI();
-        },
-        onOnly: () => {
-          const onlyEras = {};
-          for (const item of ART_ERAS) {
-            onlyEras[item.id] = item.id === era.id;
-          }
-          settings = saveSettings({ ...settings, eras: onlyEras });
-          syncEraCheckboxes();
-          updateFilterApplyUI();
-        },
-      })
-    );
+  const allErasOn = isAllErasEnabled(settings);
+
+  for (const group of ART_ERA_GROUPS) {
+    const groupEras = ART_ERAS.filter((e) => e.group === group.id);
+    if (groupEras.length === 0) continue;
+
+    const activeCount = groupEras.filter((e) => Boolean(settings.eras[e.id])).length;
+    const details = document.createElement('details');
+    details.className = 'era-group';
+    details.dataset.eraGroup = group.id;
+    // Keep groups cleanly collapsed when All Eras are active; auto-expand active narrowed groups.
+    if (!allErasOn && activeCount > 0) {
+      details.open = true;
+    }
+
+    const summary = document.createElement('summary');
+    summary.className = 'era-group-summary';
+
+    const meta = document.createElement('div');
+    meta.className = 'era-group-meta';
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'era-group-title';
+    titleEl.textContent = group.label;
+
+    const subEl = document.createElement('span');
+    subEl.className = 'era-group-sub';
+    subEl.textContent = group.summary;
+
+    meta.append(titleEl, subEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'era-group-actions';
+
+    const onlyGroupBtn = document.createElement('button');
+    onlyGroupBtn.type = 'button';
+    onlyGroupBtn.className = 'only-pill-btn era-group-only-btn';
+    onlyGroupBtn.textContent = 'Only';
+    onlyGroupBtn.setAttribute('aria-label', `Select only ${group.label} eras`);
+    onlyGroupBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const onlyGroupEras = {};
+      for (const item of ART_ERAS) {
+        onlyGroupEras[item.id] = item.group === group.id;
+      }
+      settings = saveSettings({ ...settings, eras: onlyGroupEras });
+      details.open = true;
+      syncEraCheckboxes();
+      updateFilterApplyUI();
+    });
+
+    const countBadge = document.createElement('span');
+    countBadge.className = 'era-group-count';
+    countBadge.dataset.eraGroupCount = group.id;
+
+    actions.append(onlyGroupBtn, countBadge, createEraGroupChevron());
+    summary.append(meta, actions);
+
+    const list = document.createElement('div');
+    list.className = 'era-group-list';
+
+    for (const era of groupEras) {
+      list.append(
+        createToggleRow({
+          id: `toggle-era-${era.id}`,
+          title: era.label,
+          desc: era.description,
+          checked: Boolean(settings.eras[era.id]),
+          onChange: (input) => {
+            const nextEras = { ...settings.eras, [era.id]: input.checked };
+            if (!Object.values(nextEras).some(Boolean)) {
+              input.checked = true;
+              showToast('Keep at least one era enabled');
+              return;
+            }
+            settings = saveSettings({ ...settings, eras: nextEras });
+            updateFilterApplyUI();
+          },
+          onOnly: () => {
+            const onlyEras = {};
+            for (const item of ART_ERAS) {
+              onlyEras[item.id] = item.id === era.id;
+            }
+            settings = saveSettings({ ...settings, eras: onlyEras });
+            syncEraCheckboxes();
+            updateFilterApplyUI();
+          },
+        })
+      );
+    }
+
+    details.append(summary, list);
+    dom.eraToggles.append(details);
   }
 
   dom.toggleHighlights.checked = Boolean(settings.highlightsOnly);

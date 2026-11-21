@@ -50,7 +50,7 @@ export const ART_CATEGORIES = [
       'tempera panel',
       'seascape painting',
     ],
-    metDepartments: [11, 15, 21],
+    metDepartments: [11, 15, 21, 6],
     metMedium: 'Paintings',
     metQueries: [
       'painting',
@@ -79,7 +79,7 @@ export const ART_CATEGORIES = [
       'engraving',
       'pastel paper',
     ],
-    metDepartments: [9, 16],
+    metDepartments: [9, 16, 6],
     metMedium: null,
     metQueries: [
       'print',
@@ -131,7 +131,7 @@ export const ART_CATEGORIES = [
       'stone relief',
       'statue',
     ],
-    metDepartments: [12, 13, 17],
+    metDepartments: [12, 13, 17, 6],
     metMedium: 'Sculpture',
     metQueries: [
       'sculpture',
@@ -157,7 +157,7 @@ export const ART_CATEGORIES = [
       'woven silk',
       'furniture cabinet',
     ],
-    metDepartments: [1, 8, 12, 18],
+    metDepartments: [1, 8, 12, 18, 6],
     metMedium: null,
     metQueries: [
       'porcelain',
@@ -203,14 +203,35 @@ export const ART_CATEGORIES = [
 ];
 
 /**
+ * Regional groupings used to organize art-history eras cleanly in the Filters drawer.
+ */
+export const ART_ERA_GROUPS = [
+  {
+    id: 'western',
+    label: 'Western & Modern',
+    summary: 'Ancient, Medieval, Renaissance, Baroque, Modern…',
+  },
+  {
+    id: 'japan',
+    label: 'Japan',
+    summary: 'Heian–Momoyama, Edo, Meiji & Modern',
+  },
+  {
+    id: 'china',
+    label: 'China',
+    summary: 'Shang–Tang, Song & Yuan, Ming & Qing',
+  },
+];
+
+/**
  * Major art-history eras combining chronological date windows with curatorial
- * department, style, and regional rules so movement-based eras (like Baroque &
- * Rococo or Neoclassicism & Romanticism) stay stylistically authentic across
- * both the Art Institute of Chicago and The Met.
+ * department, style, and regional rules so movement-based and regional eras
+ * stay stylistically authentic across both the Art Institute of Chicago and The Met.
  */
 export const ART_ERAS = [
   {
     id: 'ancient',
+    group: 'western',
     label: 'Prehistoric & Ancient',
     description: 'c. 40,000 BCE–400 CE · Egypt, Greece, Rome & Near East',
     dateBegin: -40000,
@@ -246,6 +267,7 @@ export const ART_ERAS = [
   },
   {
     id: 'medieval',
+    group: 'western',
     label: 'Medieval',
     description: 'c. 400–1400 · Byzantine, Romanesque & Gothic',
     dateBegin: 400,
@@ -273,6 +295,7 @@ export const ART_ERAS = [
   },
   {
     id: 'renaissance',
+    group: 'western',
     label: 'Renaissance',
     description: 'c. 1400–1600 · Early/High, Northern & Mannerism',
     dateBegin: 1400,
@@ -300,6 +323,7 @@ export const ART_ERAS = [
   },
   {
     id: 'baroque-rococo',
+    group: 'western',
     label: 'Baroque & Rococo',
     description: 'c. 1600–1780 · Dramatic chiaroscuro & ornate elegance',
     dateBegin: 1600,
@@ -329,6 +353,7 @@ export const ART_ERAS = [
   },
   {
     id: 'neoclassicism-romanticism',
+    group: 'western',
     label: 'Neoclassicism & Romanticism',
     description: 'c. 1750–1850 · Classical order & sublime emotion',
     dateBegin: 1750,
@@ -358,6 +383,7 @@ export const ART_ERAS = [
   },
   {
     id: 'realism-impressionism',
+    group: 'western',
     label: 'Realism & Impressionism',
     description: 'c. 1850–1905 · Realism, Impressionism & Post-Impressionism',
     dateBegin: 1850,
@@ -392,6 +418,7 @@ export const ART_ERAS = [
   },
   {
     id: 'modern',
+    group: 'western',
     label: 'Modern',
     description: 'c. 1900–1970 · Cubism, Surrealism, Abstract & Bauhaus',
     dateBegin: 1900,
@@ -431,6 +458,7 @@ export const ART_ERAS = [
   },
   {
     id: 'contemporary',
+    group: 'western',
     label: 'Contemporary',
     description: '1970–Present · Postmodern, Conceptual & Present Day',
     dateBegin: 1970,
@@ -454,6 +482,190 @@ export const ART_ERAS = [
     ],
     metDepartments: [21, 19, 9, 8],
     metQueries: ['untitled', 'portrait', 'color', 'light', 'street', 'figure', 'landscape', 'print', 'photograph'],
+  },
+  {
+    id: 'japan-classical',
+    group: 'japan',
+    label: 'Classical & Feudal Japan',
+    description: 'c. 794–1603 · Heian, Kamakura, Muromachi & Momoyama',
+    dateBegin: 794,
+    dateEnd: 1603,
+    regionScope: 'japan',
+    aicQueries: [
+      'heian japan',
+      'kamakura japan',
+      'muromachi japan',
+      'momoyama japan',
+      'japanese buddhist sculpture',
+      'japanese folding screen',
+      'japanese ink painting',
+    ],
+    aicStyles: [
+      'heian',
+      'kamakura',
+      'muromachi',
+      'momoyama',
+      'nanbokucho',
+      'azuchi-momoyama',
+      'nara',
+      'japanese',
+    ],
+    metDepartments: [6, 4],
+    metQueries: ['Japan Heian', 'Japan Kamakura', 'Japan Muromachi', 'Japan Momoyama', 'Japan screen', 'Japan scroll', 'Japan sword', 'Japan Buddha'],
+    metFallbackQuery: 'Japan',
+  },
+  {
+    id: 'japan-edo',
+    group: 'japan',
+    label: 'Edo Period Japan',
+    description: '1603–1868 · Ukiyo-e prints, Rimpa screens, kimono & lacquer',
+    dateBegin: 1603,
+    dateEnd: 1868,
+    regionScope: 'japan',
+    aicQueries: [
+      'edo period japan',
+      'ukiyo-e woodblock',
+      'hokusai',
+      'hiroshige',
+      'utamaro',
+      'rimpa japan',
+      'japanese kimono edo',
+    ],
+    aicStyles: [
+      'edo',
+      'edo period',
+      'ukiyo-e',
+      'rimpa',
+      'kano school',
+      'maruyama-shijo',
+      'japanese',
+    ],
+    metDepartments: [6, 4, 8, 19],
+    metQueries: ['Japan Edo', 'Japan ukiyo-e', 'Japan woodblock', 'Japan screen', 'Japan kimono', 'Japan lacquer', 'Japan Hokusai', 'Japan Hiroshige'],
+    metFallbackQuery: 'Japan',
+  },
+  {
+    id: 'japan-modern',
+    group: 'japan',
+    label: 'Meiji & Modern Japan',
+    description: '1868–1970 · Shin-hanga, Nihonga, Meiji crafts & photography',
+    dateBegin: 1868,
+    dateEnd: 1970,
+    regionScope: 'japan',
+    aicQueries: [
+      'meiji japan',
+      'shin-hanga japan',
+      'taisho japan',
+      'showa japan',
+      'hiroshi yoshida',
+      'kawase hasui',
+      'japanese photograph',
+    ],
+    aicStyles: [
+      'meiji',
+      'taisho',
+      'showa',
+      'shin-hanga',
+      'sosaku-hanga',
+      'nihonga',
+      'japanese',
+    ],
+    metDepartments: [6, 19, 21, 8],
+    metQueries: ['Japan Meiji', 'Japan Taisho', 'Japan Showa', 'Japan shin-hanga', 'Japan print', 'Japan cloisonne', 'Japan photograph', 'Japan painting'],
+    metFallbackQuery: 'Japan',
+  },
+  {
+    id: 'china-early',
+    group: 'china',
+    label: 'Early Imperial China',
+    description: 'c. 1600 BCE–907 CE · Shang–Zhou bronzes, Han & Tang',
+    dateBegin: -1600,
+    dateEnd: 907,
+    regionScope: 'china',
+    aicQueries: [
+      'shang dynasty china',
+      'zhou dynasty china',
+      'han dynasty china',
+      'tang dynasty china',
+      'chinese bronze vessel',
+      'chinese jade',
+      'tang sancai',
+    ],
+    aicStyles: [
+      'shang',
+      'zhou',
+      'qin',
+      'han',
+      'six dynasties',
+      'northern wei',
+      'sui',
+      'tang',
+      'warring states',
+      'chinese',
+    ],
+    metDepartments: [6],
+    metQueries: ['China Shang', 'China Zhou', 'China Han', 'China Tang', 'China bronze', 'China jade', 'China horse', 'China Buddha'],
+    metFallbackQuery: 'China',
+  },
+  {
+    id: 'china-song-yuan',
+    group: 'china',
+    label: 'Song & Yuan Dynasties',
+    description: '960–1368 · Shan shui ink landscapes, celadon & calligraphy',
+    dateBegin: 960,
+    dateEnd: 1368,
+    regionScope: 'china',
+    aicQueries: [
+      'song dynasty china',
+      'northern song china',
+      'southern song china',
+      'yuan dynasty china',
+      'chinese celadon',
+      'song landscape scroll',
+    ],
+    aicStyles: [
+      'song',
+      'northern song',
+      'southern song',
+      'jin dynasty',
+      'liao',
+      'yuan',
+      'chinese',
+    ],
+    metDepartments: [6],
+    metQueries: ['China Song', 'China Yuan', 'China landscape', 'China celadon', 'China porcelain', 'China scroll', 'China calligraphy', 'China Buddha'],
+    metFallbackQuery: 'China',
+  },
+  {
+    id: 'china-ming-qing',
+    group: 'china',
+    label: 'Ming & Qing Dynasties',
+    description: '1368–1912 · Imperial porcelain, court robes, jade & painting',
+    dateBegin: 1368,
+    dateEnd: 1912,
+    regionScope: 'china',
+    aicQueries: [
+      'ming dynasty china',
+      'qing dynasty china',
+      'chinese porcelain ming',
+      'chinese porcelain qing',
+      'qing painting china',
+      'chinese jade qing',
+      'chinese silk robe',
+    ],
+    aicStyles: [
+      'ming',
+      'qing',
+      'kangxi',
+      'qianlong',
+      'yongle',
+      'wanli',
+      'xuande',
+      'chinese',
+    ],
+    metDepartments: [6, 19, 8],
+    metQueries: ['China Ming', 'China Qing', 'China porcelain', 'China painting', 'China landscape', 'China robe', 'China jade', 'China lacquer'],
+    metFallbackQuery: 'China',
   },
 ];
 
@@ -485,6 +697,12 @@ export const DEFAULT_SETTINGS = {
     'realism-impressionism': true,
     modern: true,
     contemporary: true,
+    'japan-classical': true,
+    'japan-edo': true,
+    'japan-modern': true,
+    'china-early': true,
+    'china-song-yuan': true,
+    'china-ming-qing': true,
   },
 };
 
@@ -498,7 +716,7 @@ export const VERIFIED_FALLBACK_IDS = {
     { id: 27992, category: 'paintings', era: 'realism-impressionism' }, // Seurat, A Sunday on La Grande Jatte (1884)
     { id: 28560, category: 'paintings', era: 'realism-impressionism' }, // Van Gogh, The Bedroom (1889)
     { id: 111628, category: 'paintings', era: 'modern' },              // Hopper, Nighthawks (1942)
-    { id: 24645, category: 'works-on-paper', era: null },              // Hokusai, The Great Wave (Edo Japan, 1831)
+    { id: 24645, category: 'works-on-paper', era: 'japan-edo' },       // Hokusai, The Great Wave (Edo Japan, 1831)
   ],
   met: [
     { id: 436524, category: 'paintings', era: 'realism-impressionism' }, // Van Gogh, Sunflowers (1887)

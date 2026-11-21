@@ -36,7 +36,7 @@ export function classifyAicArtwork(record) {
   if (/\b(sculpture|statue|bust|relief|carving|figurine)\b/.test(typeText)) {
     return 'sculpture';
   }
-  if (/\b(textile|tapestry|costume|furniture|glass|ceramic|porcelain|vessel|metalwork|silver|jewelry|decorative|stained glass|carpet|lace|embroidery|clock|instrument)\b/.test(typeText) || deptText.includes('textiles') || deptText.includes('architecture and design')) {
+  if (/\b(textile|tapestry|costume|furniture|glass|ceramic|porcelain|stoneware|celadon|earthenware|lacquer|cloisonn[eé]|kimono|robe|vessel|metalwork|silver|jewelry|decorative|stained glass|carpet|lace|embroidery|clock|instrument)\b/.test(typeText) || deptText.includes('textiles') || deptText.includes('architecture and design')) {
     return 'decorative';
   }
   if (/\b(ancient|egyptian|greek|roman|byzantine|medieval|islamic|asian|african|americas|oceanic|armor|arms|weapon|coin|mask|scroll|screen)\b/.test(combined)) {
@@ -64,7 +64,7 @@ export function classifyMetArtwork(record) {
   if (dept.includes('european paintings') || /\bpainting/.test(primary) || /\b(oil on canvas|oil on wood|tempera on wood|oil on panel)\b/.test(medium)) {
     return 'paintings';
   }
-  if (dept.includes('drawings and prints') || dept.includes('libraries') || /\b(print|drawing|etching|woodcut|lithograph|engraving|watercolor|manuscript|book|codex|pastel)\b/.test(primary)) {
+  if (dept.includes('drawings and prints') || dept.includes('libraries') || /\b(print|drawing|etching|woodcut|woodblock|lithograph|engraving|watercolor|manuscript|book|codex|pastel)\b/.test(primary)) {
     return 'works-on-paper';
   }
   if (/\b(sculpture|statue|statuette|bust|relief|figure|figurine)\b/.test(primary)) {
@@ -74,7 +74,7 @@ export function classifyMetArtwork(record) {
     dept.includes('decorative arts') ||
     dept.includes('costume institute') ||
     dept.includes('musical instruments') ||
-    /\b(textile|tapestry|ceramic|porcelain|glass|furniture|metalwork|silver|gold|jewelry|costume|dress|lace|instrument|clock|enamel|woodwork)\b/.test(primary)
+    /\b(textile|tapestry|ceramic|porcelain|stoneware|celadon|earthenware|lacquer|cloisonn[eé]|kimono|robe|glass|furniture|metalwork|silver|gold|jewelry|costume|dress|lace|instrument|clock|enamel|woodwork)\b/.test(primary)
   ) {
     return 'decorative';
   }
@@ -365,6 +365,18 @@ const WESTERN_ORIGIN_RE =
 const ANCIENT_SCOPE_RE =
   /\b(ancient|egypt|egyptian|greek|greece|roman|rome|etruscan|mesopotam|assyria|assyrian|babylon|babylonian|sumer|sumerian|mediterranean|near east|near eastern|cycladic|minoan|mycenaean|hellenistic|classical|prehistoric|neolithic|paleolithic|phoenician|cypriot|anatolian|levant|achaemenid|byzantine|celtic)\b/i;
 
+const JAPAN_ORIGIN_RE =
+  /\b(japan|japanese|edo|kyoto|tokyo|osaka|nagasaki|heian|kamakura|muromachi|momoyama|nanbokucho|azuchi-momoyama|nara|meiji|taisho|showa|ukiyo-e|shin-hanga|sosaku-hanga|nihonga|rimpa|kano school|maruyama-shijo)\b/i;
+
+const CHINA_ORIGIN_RE =
+  /\b(china|chinese|beijing|peking|shanghai|nanjing|hangzhou|suzhou|jingdezhen|shang|zhou|warring states|qin|han|six dynasties|northern wei|sui|tang|song|northern song|southern song|jin dynasty|liao|yuan|ming|qing|kangxi|qianlong|yongle|wanli|xuande|sancai|shan shui)\b/i;
+
+const NON_JAPAN_RE =
+  /\b(china|chinese|korea|korean|joseon|goryeo|india|indian|mughal|tibet|tibetan|nepal|nepalese|thailand|thai|cambodia|cambodian|khmer|vietnam|vietnamese|indonesia|indonesian|java|javanese|iran|iranian|persia|persian|islamic|ottoman|turkish|europe|european|france|french|italy|italian|germany|german|england|english|british|dutch|netherlands|spain|spanish|american|united states|egypt|egyptian|greek|roman)\b/i;
+
+const NON_CHINA_RE =
+  /\b(japan|japanese|edo|meiji|taisho|showa|heian|kamakura|muromachi|momoyama|ukiyo-e|korea|korean|joseon|goryeo|india|indian|mughal|tibet|tibetan|nepal|nepalese|thailand|thai|cambodia|cambodian|khmer|vietnam|vietnamese|indonesia|indonesian|java|javanese|iran|iranian|persia|persian|islamic|ottoman|turkish|europe|european|france|french|italy|italian|germany|german|england|english|british|dutch|netherlands|spain|spanish|american|united states|egypt|egyptian|greek|roman)\b/i;
+
 function isYearInEra(startYear, endYear, era) {
   const hasStart = typeof startYear === 'number' && Number.isFinite(startYear);
   const hasEnd = typeof endYear === 'number' && Number.isFinite(endYear);
@@ -372,18 +384,22 @@ function isYearInEra(startYear, endYear, era) {
 
   const s = hasStart ? startYear : endYear;
   const e = hasEnd ? endYear : startYear;
-  // Guard against overly vague date ranges on post-ancient works (e.g. 1500-2000)
-  if (era.id !== 'ancient' && Math.abs(e - s) > 250) {
-    return false;
+  // Guard against overly vague date ranges on post-ancient works (allowing wider dynastic spans for Early Imperial China)
+  if (era.id !== 'ancient') {
+    const maxSpan = era.id === 'china-early' ? 1000 : 250;
+    if (Math.abs(e - s) > maxSpan) {
+      return false;
+    }
   }
   const mid = (s + e) / 2;
   return mid >= era.dateBegin && mid <= era.dateEnd;
 }
 
-function matchesRegionScope({ scope, dept, originText, styleText, era }) {
+function matchesRegionScope({ scope, dept, primaryOrigin = '', originText, styleText, era }) {
   if (scope === 'any') return true;
 
   const deptLow = dept.toLowerCase();
+  const primaryLow = primaryOrigin.toLowerCase();
   const originLow = originText.toLowerCase();
   const styleLow = styleText.toLowerCase();
   const allText = `${deptLow} ${originLow} ${styleLow}`;
@@ -421,6 +437,40 @@ function matchesRegionScope({ scope, dept, originText, styleText, era }) {
     return EUROPEAN_ORIGIN_RE.test(allText) || WESTERN_ORIGIN_RE.test(allText);
   }
 
+  if (scope === 'japan') {
+    const hasExplicitJapan = /\b(japan|japanese)\b/i.test(originLow);
+    if (primaryLow && NON_JAPAN_RE.test(primaryLow) && !/\b(japan|japanese)\b/i.test(primaryLow)) {
+      return false;
+    }
+    if (NON_JAPAN_RE.test(originLow) && !hasExplicitJapan) {
+      return false;
+    }
+    if (
+      /\b(european|american|egyptian|greek and roman|ancient near|islamic|medieval|cloisters|africa|oceania)\b/i.test(deptLow) &&
+      !hasExplicitJapan
+    ) {
+      return false;
+    }
+    return JAPAN_ORIGIN_RE.test(originLow) || JAPAN_ORIGIN_RE.test(styleLow);
+  }
+
+  if (scope === 'china') {
+    const hasExplicitChina = /\b(china|chinese)\b/i.test(originLow);
+    if (primaryLow && NON_CHINA_RE.test(primaryLow) && !/\b(china|chinese)\b/i.test(primaryLow)) {
+      return false;
+    }
+    if (NON_CHINA_RE.test(originLow) && !hasExplicitChina) {
+      return false;
+    }
+    if (
+      /\b(european|american|egyptian|greek and roman|ancient near|islamic|medieval|cloisters|africa|oceania)\b/i.test(deptLow) &&
+      !hasExplicitChina
+    ) {
+      return false;
+    }
+    return CHINA_ORIGIN_RE.test(originLow) || CHINA_ORIGIN_RE.test(styleLow);
+  }
+
   return true;
 }
 
@@ -441,6 +491,7 @@ export function matchesAicEra(record, era) {
     .filter(Boolean)
     .join(' ');
 
+  const primaryOrigin = String(record.place_of_origin || '');
   const originText = [record.place_of_origin, record.artist_display]
     .filter(Boolean)
     .join(' ');
@@ -448,6 +499,7 @@ export function matchesAicEra(record, era) {
   return matchesRegionScope({
     scope: era.regionScope,
     dept: String(record.department_title || ''),
+    primaryOrigin,
     originText,
     styleText,
     era,
@@ -477,6 +529,10 @@ export function matchesMetEra(record, era) {
 
   if (!isYearInEra(rawStart, rawEnd, era)) return false;
 
+  const primaryOrigin = [record.culture, record.country]
+    .filter(Boolean)
+    .join(' ');
+
   const originText = [
     record.culture,
     record.country,
@@ -495,6 +551,7 @@ export function matchesMetEra(record, era) {
   return matchesRegionScope({
     scope: era.regionScope,
     dept: String(record.department || ''),
+    primaryOrigin,
     originText,
     styleText,
     era,

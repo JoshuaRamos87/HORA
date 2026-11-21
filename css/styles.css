@@ -1426,6 +1426,124 @@ button:disabled {
   background: var(--ink-muted);
 }
 
+/* Collapsible Regional Era Groups */
+.era-group {
+  border-radius: 12px;
+  border: 1px solid var(--hairline-subtle);
+  background: hsla(36, 20%, 92%, 0.025);
+  overflow: hidden;
+  transition: border-color var(--t-fast), background var(--t-fast), opacity var(--t-fast);
+}
+
+.era-group[open] {
+  border-color: var(--hairline);
+  background: hsla(36, 20%, 92%, 0.032);
+}
+
+.era-group.is-empty:not([open]) {
+  opacity: 0.72;
+}
+
+.era-group-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--t-fast);
+}
+
+.era-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.era-group-summary:hover {
+  background: hsla(36, 20%, 92%, 0.045);
+}
+
+.era-group-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.era-group-title {
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--ink-primary);
+}
+
+.era-group-sub {
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.era-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.era-group-summary:hover .era-group-only-btn,
+.era-group-only-btn:focus-visible {
+  color: var(--ink-secondary);
+  border-color: var(--hairline-subtle);
+}
+
+.era-group-count {
+  font-size: 0.7rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-chip);
+  border: 1px solid var(--hairline-subtle);
+  color: var(--ink-secondary);
+}
+
+.era-group-count.is-partial {
+  color: var(--ink-accent);
+  background: hsla(38, 34%, 74%, 0.14);
+  border-color: hsla(38, 34%, 74%, 0.34);
+}
+
+.era-group-count.is-empty {
+  color: var(--ink-muted);
+  opacity: 0.75;
+}
+
+.era-group-chevron {
+  color: var(--ink-muted);
+  flex: 0 0 auto;
+  transition: transform var(--t-fast) var(--ease-gallery), color var(--t-fast);
+}
+
+.era-group[open] .era-group-chevron {
+  transform: rotate(180deg);
+  color: var(--ink-secondary);
+}
+
+.era-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  border-top: 1px solid var(--hairline-subtle);
+}
+
+.era-group-list .toggle-row {
+  padding: 9px 10px;
+}
+
 .filter-apply-bar {
   position: sticky;
   bottom: -28px;
@@ -1751,6 +1869,23 @@ button:disabled {
 :root[data-theme="light"] .switch-input:disabled::after {
   background: var(--ink-muted);
   box-shadow: none;
+}
+
+:root[data-theme="light"] .era-group {
+  background: hsla(28, 14%, 14%, 0.024);
+}
+
+:root[data-theme="light"] .era-group[open] {
+  background: hsla(28, 14%, 14%, 0.032);
+}
+
+:root[data-theme="light"] .era-group-summary:hover {
+  background: hsla(28, 14%, 14%, 0.048);
+}
+
+:root[data-theme="light"] .era-group-count.is-partial {
+  background: hsla(34, 44%, 36%, 0.12);
+  border-color: hsla(34, 44%, 36%, 0.34);
 }
 
 :root[data-theme="light"] .filter-apply-bar {
