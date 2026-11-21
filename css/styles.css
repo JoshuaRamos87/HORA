@@ -1371,6 +1371,36 @@ button:disabled {
   background: var(--ink-accent);
 }
 
+.toggle-row.is-unavailable {
+  opacity: 0.46;
+  cursor: not-allowed;
+  background: hsla(36, 12%, 92%, 0.012);
+  border-color: var(--hairline-subtle);
+}
+
+.toggle-row.is-unavailable:hover {
+  background: hsla(36, 12%, 92%, 0.012);
+  border-color: var(--hairline-subtle);
+}
+
+.toggle-row.is-unavailable .toggle-text {
+  cursor: not-allowed;
+}
+
+.toggle-row.is-unavailable .toggle-desc {
+  font-style: italic;
+}
+
+.switch-input:disabled {
+  cursor: not-allowed;
+  background: hsla(36, 10%, 88%, 0.08);
+  border-color: var(--hairline-subtle);
+}
+
+.switch-input:disabled::after {
+  background: var(--ink-muted);
+}
+
 .filter-apply-bar {
   position: sticky;
   bottom: -28px;

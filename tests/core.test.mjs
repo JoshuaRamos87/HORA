@@ -14,7 +14,9 @@ import {
   getFilterSignature,
   getSkipsRemainingInHour,
   getSkipsUsedInHour,
+  hasCompatibleCategoryForEras,
   isAllErasEnabled,
+  isPhotographyAvailableForEras,
   loadGalleryState,
   loadSettings,
   normalizeSettings,
@@ -684,6 +686,24 @@ test('strict era filtering rejects incompatible combos (e.g. Photography + Baroq
   );
   // Both AIC and Met immediately detect Photography + Baroque is pre-photography without wasting API calls!
   assert.equal(fetchCount, 0);
+
+  // UI availability helpers mirror the exact same pre-1825 rule
+  assert.equal(isPhotographyAvailableForEras(impossible), false);
+  assert.equal(hasCompatibleCategoryForEras(impossible), false);
+
+  const baroqueWithPaintings = normalizeSettings({
+    categories: { ...impossible.categories, paintings: true },
+    eras: impossible.eras,
+  });
+  assert.equal(isPhotographyAvailableForEras(baroqueWithPaintings), false);
+  assert.equal(hasCompatibleCategoryForEras(baroqueWithPaintings), true);
+
+  const neoclassicPhoto = normalizeSettings({
+    categories: impossible.categories,
+    eras: { ...allOffEras, 'neoclassicism-romanticism': true },
+  });
+  assert.equal(isPhotographyAvailableForEras(neoclassicPhoto), true);
+  assert.equal(hasCompatibleCategoryForEras(neoclassicPhoto), true);
 });
 
 

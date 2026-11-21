@@ -120,6 +120,25 @@ export function isAllErasEnabled(settings) {
 }
 
 /**
+ * Returns true if at least one enabled art-history era extends into the
+ * photography era (1825 or later).
+ */
+export function isPhotographyAvailableForEras(settings) {
+  const enabledIds = new Set(getEnabledEras(settings));
+  return ART_ERAS.some((era) => enabledIds.has(era.id) && era.dateEnd >= 1825);
+}
+
+/**
+ * Returns true if at least one enabled art type can match the enabled eras.
+ */
+export function hasCompatibleCategoryForEras(settings) {
+  const cats = getEnabledCategories(settings);
+  if (cats.length === 0) return false;
+  if (isPhotographyAvailableForEras(settings)) return true;
+  return cats.some((id) => id !== 'photography');
+}
+
+/**
  * Stable signature of the curatorial filter settings (museums, art types, eras, highlights),
  * excluding visual framing preferences so Apply Filters only triggers on collection changes.
  */

@@ -24,7 +24,9 @@ import {
   canSkipInHour,
   getFilterSignature,
   getSkipsRemainingInHour,
+  hasCompatibleCategoryForEras,
   isAllErasEnabled,
+  isPhotographyAvailableForEras,
   loadGalleryState,
   loadSettings,
   recordDisplayedArtwork,
@@ -288,17 +290,45 @@ function hasPendingFilterChanges() {
   return getFilterSignature(settings) !== appliedFilterSignature;
 }
 
+function syncCategoryAvailability() {
+  const photoAvailable = isPhotographyAvailableForEras(settings);
+  const photoInput = document.getElementById('toggle-cat-photography');
+  if (!photoInput) return;
+
+  const row = photoInput.closest('.toggle-row');
+  const descEl = row?.querySelector('.toggle-desc');
+  const photoCat = ART_CATEGORIES.find((c) => c.id === 'photography');
+
+  photoInput.disabled = !photoAvailable;
+  photoInput.checked = photoAvailable ? Boolean(settings.categories.photography) : false;
+
+  if (row) {
+    row.classList.toggle('is-unavailable', !photoAvailable);
+    row.setAttribute('aria-disabled', String(!photoAvailable));
+  }
+  if (descEl && photoCat) {
+    descEl.textContent = photoAvailable
+      ? photoCat.description
+      : 'Unavailable for selected pre-1825 eras';
+  }
+}
+
 function updateFilterApplyUI() {
   const pending = hasPendingFilterChanges();
+  const compatible = hasCompatibleCategoryForEras(settings);
   const now = Date.now();
   const inCooldown = now < filterCooldownUntil;
 
+  syncCategoryAvailability();
   dom.erasAllBtn.disabled = isAllErasEnabled(settings);
-  dom.applyFiltersBtn.disabled = !pending || isLoadingArtwork || inCooldown;
+  dom.applyFiltersBtn.disabled = !pending || !compatible || isLoadingArtwork || inCooldown;
 
   if (isLoadingArtwork) {
     dom.applyFiltersLabel.textContent = 'Loading…';
     dom.filterApplyHint.textContent = 'Fetching a matching work from the archives';
+  } else if (!compatible) {
+    dom.applyFiltersLabel.textContent = 'Select Another Art Type or Era';
+    dom.filterApplyHint.textContent = 'Photography isn’t available for the selected pre-1825 eras.';
   } else if (pending && inCooldown) {
     dom.applyFiltersLabel.textContent = 'Apply & Refresh Artwork';
     dom.filterApplyHint.textContent = 'Ready in a moment…';
@@ -397,9 +427,13 @@ function renderFilterSettings() {
         checked: Boolean(settings.categories[cat.id]),
         onChange: (input) => {
           const nextCats = { ...settings.categories, [cat.id]: input.checked };
-          if (!Object.values(nextCats).some(Boolean)) {
+          const photoAvailable = isPhotographyAvailableForEras(settings);
+          const hasAnyActive = ART_CATEGORIES.some(
+            (c) => nextCats[c.id] && (c.id !== 'photography' || photoAvailable)
+          );
+          if (!hasAnyActive) {
             input.checked = true;
-            showToast('Keep at least one art type enabled');
+            showToast('Keep at least one available art type enabled');
             return;
           }
           settings = saveSettings({ ...settings, categories: nextCats });
