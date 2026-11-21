@@ -13,6 +13,7 @@ A quiet, zero-build static web app that displays a full-screen museum artwork ea
   - **Rate-Limit Friendly Caching** — caches session pools per category, batch-fetches up to 10 Art Institute of Chicago artworks per request via `?ids=`, and automatically routes around HTTP `429` responses.
   - **About & Keyboard Shortcuts** — museum attributions and quick navigation (`↑`/`I` details, `M` menu, `F` framing, `Esc` close).
 
+- **Zoom & Inspection** — Instagram-style two-finger pinch-to-zoom (up to `4×`) on mobile that springs cleanly back to `100%` on release without zooming the page, plus a translucent bottom-right desktop zoom bar (`100%–400%`) with slider, drag-to-pan, double-click zoom, trackpad pinch, and `+`/`-`/`0` shortcuts.
 - **Installable Phone App (PWA)** — full-screen standalone mode on iOS and Android, custom home-screen icons, notch/safe-area support, and offline shell + current-artwork caching via `sw.js`.
 
 ## Installing on Your Phone (PWA)

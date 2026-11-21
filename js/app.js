@@ -30,6 +30,7 @@ import {
   saveSettings,
 } from './storage.js';
 import { enrichArtworkContext, fetchNextArtwork } from './api.js';
+import { createZoomController, ZOOM_STEP } from './zoom.js';
 
 const FRAMING_LABELS = {
   ambient: 'Ambient Frame',
@@ -39,6 +40,8 @@ const FRAMING_LABELS = {
 
 const dom = {
   viewport: document.getElementById('gallery-viewport'),
+  artworkStage: document.getElementById('artwork-stage'),
+  artworkFrame: document.getElementById('artwork-frame'),
   ambientImage: document.getElementById('ambient-image'),
   artworkImage: document.getElementById('artwork-image'),
   stageStatus: document.getElementById('stage-status'),
@@ -49,6 +52,15 @@ const dom = {
   infoTrigger: document.getElementById('info-trigger'),
   whisperCaption: document.getElementById('whisper-caption'),
   scrim: document.getElementById('overlay-scrim'),
+
+  zoomControl: document.getElementById('zoom-control'),
+  zoomToggleBtn: document.getElementById('zoom-toggle-btn'),
+  zoomToggleLabel: document.getElementById('zoom-toggle-label'),
+  zoomSlider: document.getElementById('zoom-slider'),
+  zoomOutBtn: document.getElementById('zoom-out-btn'),
+  zoomInBtn: document.getElementById('zoom-in-btn'),
+  zoomPercentBtn: document.getElementById('zoom-percent-btn'),
+  zoomCollapseBtn: document.getElementById('zoom-collapse-btn'),
 
   infoDrawer: document.getElementById('info-drawer'),
   infoCloseBtn: document.getElementById('info-close-btn'),
@@ -107,6 +119,7 @@ let toastTimer = null;
 let skipCooldownUntil = 0;
 let filterCooldownUntil = 0;
 let deferredInstallPrompt = null;
+let zoomController = null;
 
 /* ==========================================================================
    Toast & Status Helpers
@@ -236,6 +249,7 @@ function applyFraming(mode) {
   for (const btn of dom.framingButtons) {
     btn.classList.toggle('is-active', btn.dataset.framingOption === valid);
   }
+  zoomController?.reset({ animate: true, collapse: false });
 }
 
 function cycleFraming() {
@@ -505,6 +519,8 @@ function renderHistoryBlock(artwork, loadingContext = false) {
 }
 
 async function presentArtwork(artwork, { requestId }) {
+  zoomController?.reset({ animate: false, collapse: false });
+
   // Show AIC low-res blur preview immediately while the crisp image downloads.
   if (artwork.lqip) {
     dom.artworkImage.src = artwork.lqip;
@@ -753,7 +769,11 @@ function bindSwipeGestures() {
   dom.viewport.addEventListener(
     'touchstart',
     (e) => {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1) {
+        startY = null;
+        startX = null;
+        return;
+      }
       startY = e.touches[0].clientY;
       startX = e.touches[0].clientX;
     },
@@ -763,7 +783,11 @@ function bindSwipeGestures() {
   dom.viewport.addEventListener(
     'touchend',
     (e) => {
-      if (startY === null || e.changedTouches.length !== 1) return;
+      if (startY === null || e.changedTouches.length !== 1 || zoomController?.isInteracting()) {
+        startY = null;
+        startX = null;
+        return;
+      }
       const dy = e.changedTouches[0].clientY - startY;
       const dx = Math.abs(e.changedTouches[0].clientX - startX);
       const startedNearBottom = startY > window.innerHeight * 0.65;
@@ -917,11 +941,34 @@ function bindEvents() {
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    const isZoomSlider = document.activeElement === dom.zoomSlider;
+    if ((tag === 'INPUT' || tag === 'TEXTAREA') && !isZoomSlider) return;
 
-    if (e.key === 'Escape' && activeOverlay) {
-      e.preventDefault();
-      closeOverlays();
+    if (e.key === 'Escape') {
+      if (activeOverlay) {
+        e.preventDefault();
+        closeOverlays();
+      } else if (zoomController?.isZoomed()) {
+        e.preventDefault();
+        zoomController.reset({ animate: true, collapse: false });
+      }
+    } else if (e.key === '+' || e.key === '=') {
+      if (!activeOverlay) {
+        e.preventDefault();
+        zoomController?.stepZoom(ZOOM_STEP);
+      }
+    } else if (e.key === '-' || e.key === '_') {
+      if (!activeOverlay) {
+        e.preventDefault();
+        zoomController?.stepZoom(-ZOOM_STEP);
+      }
+    } else if (e.key === '0') {
+      if (!activeOverlay && zoomController?.isZoomed()) {
+        e.preventDefault();
+        zoomController.reset({ animate: true, collapse: false });
+      }
+    } else if (isZoomSlider) {
+      return;
     } else if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'i') {
       if (activeOverlay === 'info') {
         closeOverlays();
@@ -955,6 +1002,23 @@ function bindEvents() {
 }
 
 async function init() {
+  zoomController = createZoomController({
+    viewport: dom.viewport,
+    stage: dom.artworkStage,
+    frame: dom.artworkFrame,
+    image: dom.artworkImage,
+    controlWrap: dom.zoomControl,
+    toggleBtn: dom.zoomToggleBtn,
+    toggleLabel: dom.zoomToggleLabel,
+    slider: dom.zoomSlider,
+    outBtn: dom.zoomOutBtn,
+    inBtn: dom.zoomInBtn,
+    percentBtn: dom.zoomPercentBtn,
+    collapseBtn: dom.zoomCollapseBtn,
+    isOverlayOpen: () => Boolean(activeOverlay),
+    onActivity: wakeChrome,
+  });
+
   applyFraming(settings.framing);
   renderFilterSettings();
   updateFullscreenButton();

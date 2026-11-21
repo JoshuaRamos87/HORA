@@ -36,6 +36,14 @@ import {
   fetchNextArtwork,
   isAicCoolingDown,
 } from '../js/api.js';
+import {
+  clampPan,
+  clampZoom,
+  computeFocalZoomPan,
+  computePinchTransform,
+  MAX_ZOOM,
+  MIN_ZOOM,
+} from '../js/zoom.js';
 
 function createMemoryStorage() {
   const map = new Map();
@@ -464,3 +472,62 @@ test('Met client caches search objectIDs, skips 404 IDs, and enriches via Wikipe
   assert.ok(context.descriptionHtml.includes('Vincent van Gogh'));
   assert.equal(context.descriptionSource.label, 'Historical Context · Wikipedia');
 });
+
+test('zoom math clamps 100%-400%, enforces viewport pan bounds, and anchors focal-point pinch', () => {
+  assert.equal(MIN_ZOOM, 1);
+  assert.equal(MAX_ZOOM, 4);
+  assert.equal(clampZoom(0.5), 1);
+  assert.equal(clampZoom(2.5), 2.5);
+  assert.equal(clampZoom(7), 4);
+  assert.equal(clampZoom(Number.NaN), 1);
+
+  // At 100%, pan is always centered (0, 0)
+  assert.deepEqual(
+    clampPan(250, -200, { scale: 1, baseWidth: 800, baseHeight: 600, viewportWidth: 1000, viewportHeight: 800 }),
+    { tx: 0, ty: 0 }
+  );
+
+  // At 200% on an 800x600 image inside a 1000x800 viewport:
+  // scaled is 1600x1200 -> maxX = (1600 - 1000)/2 = 300, maxY = (1200 - 800)/2 = 200
+  assert.deepEqual(
+    clampPan(500, -400, { scale: 2, baseWidth: 800, baseHeight: 600, viewportWidth: 1000, viewportHeight: 800 }),
+    { tx: 300, ty: -200 }
+  );
+
+  // Narrow portrait at 120% still fits horizontally (maxX = 0) while allowing vertical pan
+  assert.deepEqual(
+    clampPan(90, 150, { scale: 1.2, baseWidth: 500, baseHeight: 900, viewportWidth: 1000, viewportHeight: 800 }),
+    { tx: 0, ty: 140 }
+  );
+
+  // Focal zoom from 1x to 2x at point (+100, -50) shifts image by (-100, +50) to keep focal point stationary
+  assert.deepEqual(
+    computeFocalZoomPan({ currentScale: 1, nextScale: 2, currentTx: 0, currentTy: 0, focalX: 100, focalY: -50 }),
+    { tx: -100, ty: 50 }
+  );
+
+  // Two-finger pinch doubling finger distance from midpoint (60, -40) moved to (80, -30)
+  const pinch = computePinchTransform({
+    startDist: 100,
+    currentDist: 200,
+    startMidX: 60,
+    startMidY: -40,
+    currentMidX: 80,
+    currentMidY: -30,
+  });
+  assert.equal(pinch.scale, 2);
+  assert.equal(pinch.tx, 80 - 2 * 60);
+  assert.equal(pinch.ty, -30 - 2 * -40);
+
+  // Pinch clamps cleanly at 4x max
+  const overPinch = computePinchTransform({
+    startDist: 50,
+    currentDist: 400,
+    startMidX: 0,
+    startMidY: 0,
+    currentMidX: 0,
+    currentMidY: 0,
+  });
+  assert.equal(overPinch.scale, 4);
+});
+

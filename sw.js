@@ -6,7 +6,7 @@
  *   still renders cleanly if reopened offline.
  */
 
-const SHELL_CACHE = 'hora-shell-v2';
+const SHELL_CACHE = 'hora-shell-v3';
 const ARTWORK_CACHE = 'hora-artwork-v1';
 const MAX_CACHED_ARTWORKS = 2;
 
@@ -21,6 +21,7 @@ const SHELL_ASSETS = [
   './js/clock.js',
   './js/config.js',
   './js/storage.js',
+  './js/zoom.js',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
