@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ART_ERAS, MAX_SKIPS_PER_HOUR, STORAGE_KEYS } from '../js/config.js';
+import { ART_ERAS, MAX_SKIPS_PER_HOUR, STORAGE_KEYS, THEME_MODES } from '../js/config.js';
 import {
   formatCountdown,
   getCurrentHourKey,
@@ -21,6 +21,7 @@ import {
   loadSettings,
   normalizeSettings,
   recordDisplayedArtwork,
+  resolveThemeMode,
   saveGalleryState,
   saveSettings,
 } from '../js/storage.js';
@@ -705,5 +706,48 @@ test('strict era filtering rejects incompatible combos (e.g. Photography + Baroq
   assert.equal(isPhotographyAvailableForEras(neoclassicPhoto), true);
   assert.equal(hasCompatibleCategoryForEras(neoclassicPhoto), true);
 });
+
+test('theme settings default to system, persist light/dark overrides, resolve OS preference, and do not trigger filter refreshes', () => {
+  assert.deepEqual(THEME_MODES, ['system', 'light', 'dark']);
+
+  // Fresh and legacy saved settings default cleanly to 'system'
+  const fresh = normalizeSettings(null);
+  assert.equal(fresh.theme, 'system');
+
+  const legacy = normalizeSettings({ framing: 'matte' });
+  assert.equal(legacy.theme, 'system');
+
+  // Invalid theme values fall back to 'system'
+  const invalid = normalizeSettings({ theme: 'sepia' });
+  assert.equal(invalid.theme, 'system');
+
+  // Explicit Light and Dark choices persist across storage reloads
+  const store = createMemoryStorage();
+  saveSettings({ ...fresh, theme: 'light' }, store);
+  assert.equal(loadSettings(store).theme, 'light');
+
+  saveSettings({ ...fresh, theme: 'dark' }, store);
+  assert.equal(loadSettings(store).theme, 'dark');
+
+  saveSettings({ ...fresh, theme: 'system' }, store);
+  assert.equal(loadSettings(store).theme, 'system');
+
+  // Resolution honors explicit overrides and falls back to OS preference for 'system'
+  assert.equal(resolveThemeMode('system', true), 'light');
+  assert.equal(resolveThemeMode('system', false), 'dark');
+  assert.equal(resolveThemeMode('light', false), 'light');
+  assert.equal(resolveThemeMode('light', true), 'light');
+  assert.equal(resolveThemeMode('dark', true), 'dark');
+  assert.equal(resolveThemeMode('dark', false), 'dark');
+  assert.equal(resolveThemeMode('unknown', true), 'light');
+
+  // Changing theme does not alter curatorial filter signature
+  const sigSystem = getFilterSignature({ ...fresh, theme: 'system' });
+  const sigLight = getFilterSignature({ ...fresh, theme: 'light' });
+  const sigDark = getFilterSignature({ ...fresh, theme: 'dark' });
+  assert.equal(sigSystem, sigLight);
+  assert.equal(sigSystem, sigDark);
+});
+
 
 

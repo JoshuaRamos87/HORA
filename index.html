@@ -5,11 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>HORA — One Artwork Each Hour</title>
   <meta name="description" content="A minimalist full-screen fine art gallery displaying a new artwork every hour from the Art Institute of Chicago and The Metropolitan Museum of Art." />
-  <meta name="theme-color" content="#100f0e" />
+  <meta id="meta-theme-color" name="theme-color" content="#100f0e" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="HORA" />
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('hora_gallery_settings_v1');
+        var pref = raw ? JSON.parse(raw).theme : 'system';
+        if (pref !== 'light' && pref !== 'dark') pref = 'system';
+        var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        var resolved = pref === 'system' ? (prefersLight ? 'light' : 'dark') : pref;
+        document.documentElement.dataset.theme = resolved;
+        var meta = document.getElementById('meta-theme-color');
+        if (meta) meta.setAttribute('content', resolved === 'light' ? '#f3f0ea' : '#100f0e');
+      } catch (e) {
+        document.documentElement.dataset.theme = 'dark';
+      }
+    })();
+  </script>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
@@ -17,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=6" />
+  <link rel="stylesheet" href="./css/styles.css?v=7" />
 </head>
 <body>
   <main id="gallery-viewport" class="gallery-viewport" data-framing="ambient">
@@ -253,6 +269,15 @@
             </div>
           </div>
 
+          <div class="menu-group">
+            <span class="menu-group-label">Theme</span>
+            <div class="segmented-control" role="group" aria-label="Color theme">
+              <button id="theme-system-btn" class="segment-btn is-active" type="button" data-theme-option="system" aria-pressed="true">System</button>
+              <button id="theme-light-btn" class="segment-btn" type="button" data-theme-option="light" aria-pressed="false">Light</button>
+              <button id="theme-dark-btn" class="segment-btn" type="button" data-theme-option="dark" aria-pressed="false">Dark</button>
+            </div>
+          </div>
+
           <div id="viewport-group" class="menu-group">
             <span class="menu-group-label">Viewport</span>
             <button id="fullscreen-btn" class="subtle-action-btn" type="button">
@@ -369,6 +394,6 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="./js/app.js?v=6"></script>
+  <script type="module" src="./js/app.js?v=7"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@ import {
   MUSEUMS,
   RECENT_HISTORY_LIMIT,
   STORAGE_KEYS,
+  THEME_MODES,
 } from './config.js';
 
 function resolveStorage(customStorage) {
@@ -34,11 +35,12 @@ function safeParse(raw) {
 
 /**
  * Ensures loaded settings always have valid museums, categories, eras
- * (at least 1 enabled in each group), and a valid framing mode.
+ * (at least 1 enabled in each group), and valid framing and theme modes.
  */
 export function normalizeSettings(input) {
   const src = input && typeof input === 'object' ? input : {};
   const framing = FRAMING_MODES.includes(src.framing) ? src.framing : DEFAULT_SETTINGS.framing;
+  const theme = THEME_MODES.includes(src.theme) ? src.theme : DEFAULT_SETTINGS.theme;
   const highlightsOnly =
     typeof src.highlightsOnly === 'boolean' ? src.highlightsOnly : DEFAULT_SETTINGS.highlightsOnly;
 
@@ -80,7 +82,17 @@ export function normalizeSettings(input) {
     }
   }
 
-  return { framing, highlightsOnly, museums, categories, eras };
+  return { framing, theme, highlightsOnly, museums, categories, eras };
+}
+
+/**
+ * Resolves a stored theme preference ('system' | 'light' | 'dark') to the active
+ * visual theme ('light' | 'dark') given whether the OS prefers light color scheme.
+ */
+export function resolveThemeMode(themePreference, prefersLight = false) {
+  if (themePreference === 'light') return 'light';
+  if (themePreference === 'dark') return 'dark';
+  return prefersLight ? 'light' : 'dark';
 }
 
 export function loadSettings(customStorage) {
@@ -140,7 +152,7 @@ export function hasCompatibleCategoryForEras(settings) {
 
 /**
  * Stable signature of the curatorial filter settings (museums, art types, eras, highlights),
- * excluding visual framing preferences so Apply Filters only triggers on collection changes.
+ * excluding visual framing and theme preferences so Apply Filters only triggers on collection changes.
  */
 export function getFilterSignature(settings) {
   const normalized = normalizeSettings(settings);

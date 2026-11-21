@@ -458,9 +458,11 @@ export const ART_ERAS = [
 ];
 
 export const FRAMING_MODES = ['ambient', 'fill', 'matte'];
+export const THEME_MODES = ['system', 'light', 'dark'];
 
 export const DEFAULT_SETTINGS = {
   framing: 'ambient',
+  theme: 'system',
   highlightsOnly: true,
   museums: {
     aic: true,

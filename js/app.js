@@ -12,6 +12,7 @@ import {
   MAX_SKIPS_PER_HOUR,
   MUSEUMS,
   SKIP_COOLDOWN_MS,
+  THEME_MODES,
 } from './config.js';
 import {
   formatCountdown,
@@ -30,6 +31,7 @@ import {
   loadGalleryState,
   loadSettings,
   recordDisplayedArtwork,
+  resolveThemeMode,
   saveGalleryState,
   saveSettings,
 } from './storage.js';
@@ -39,10 +41,22 @@ import { createZoomController, ZOOM_STEP } from './zoom.js';
 const FRAMING_LABELS = {
   ambient: 'Ambient Frame',
   fill: 'Full-Bleed Fill',
-  matte: 'Dark Gallery Matte',
+  matte: 'Gallery Matte',
+};
+
+const THEME_LABELS = {
+  system: 'System Default',
+  light: 'Light',
+  dark: 'Dark',
+};
+
+const THEME_COLORS = {
+  light: '#f3f0ea',
+  dark: '#100f0e',
 };
 
 const dom = {
+  metaThemeColor: document.getElementById('meta-theme-color'),
   viewport: document.getElementById('gallery-viewport'),
   artworkStage: document.getElementById('artwork-stage'),
   artworkFrame: document.getElementById('artwork-frame'),
@@ -92,6 +106,7 @@ const dom = {
   skipPips: document.getElementById('skip-pips'),
   skipHint: document.getElementById('skip-hint'),
   framingButtons: Array.from(document.querySelectorAll('[data-framing-option]')),
+  themeButtons: Array.from(document.querySelectorAll('[data-theme-option]')),
   viewportGroup: document.getElementById('viewport-group'),
   fullscreenBtn: document.getElementById('fullscreen-btn'),
   fullscreenLabel: document.getElementById('fullscreen-label'),
@@ -110,6 +125,11 @@ const dom = {
 
   toast: document.getElementById('toast'),
 };
+
+const systemLightMediaQuery =
+  typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: light)')
+    : null;
 
 let settings = loadSettings();
 let galleryState = loadGalleryState();
@@ -245,7 +265,7 @@ function selectMenuTab(tabName) {
 }
 
 /* ==========================================================================
-   Framing & Fullscreen
+   Framing, Theme & Fullscreen
    ========================================================================== */
 
 function applyFraming(mode) {
@@ -263,6 +283,28 @@ function cycleFraming() {
   const next = FRAMING_MODES[(idx + 1) % FRAMING_MODES.length];
   applyFraming(next);
   showToast(`Framing: ${FRAMING_LABELS[next]}`);
+}
+
+function syncResolvedTheme(preference = settings.theme) {
+  const prefersLight = Boolean(systemLightMediaQuery?.matches);
+  const resolved = resolveThemeMode(preference, prefersLight);
+  document.documentElement.dataset.theme = resolved;
+  if (dom.metaThemeColor) {
+    dom.metaThemeColor.setAttribute('content', THEME_COLORS[resolved] || THEME_COLORS.dark);
+  }
+}
+
+function applyTheme(mode, { persist = true } = {}) {
+  const valid = THEME_MODES.includes(mode) ? mode : 'system';
+  if (persist) {
+    settings = saveSettings({ ...settings, theme: valid });
+  }
+  for (const btn of dom.themeButtons) {
+    const active = btn.dataset.themeOption === valid;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  syncResolvedTheme(valid);
 }
 
 function updateFullscreenButton() {
@@ -1044,6 +1086,27 @@ function bindEvents() {
     });
   }
 
+  for (const btn of dom.themeButtons) {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.themeOption;
+      applyTheme(mode);
+      showToast(`Theme: ${THEME_LABELS[mode] || 'System Default'}`);
+    });
+  }
+
+  if (systemLightMediaQuery) {
+    const handleSystemThemeChange = () => {
+      if (settings.theme === 'system') {
+        syncResolvedTheme('system');
+      }
+    };
+    if (typeof systemLightMediaQuery.addEventListener === 'function') {
+      systemLightMediaQuery.addEventListener('change', handleSystemThemeChange);
+    } else if (typeof systemLightMediaQuery.addListener === 'function') {
+      systemLightMediaQuery.addListener(handleSystemThemeChange);
+    }
+  }
+
   dom.toggleHighlights.addEventListener('change', () => {
     settings = saveSettings({
       ...settings,
@@ -1138,6 +1201,7 @@ async function init() {
   });
 
   applyFraming(settings.framing);
+  applyTheme(settings.theme, { persist: false });
   renderFilterSettings();
   updateFullscreenButton();
   setupPwaSupport();

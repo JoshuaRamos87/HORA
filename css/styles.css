@@ -51,6 +51,26 @@
   --z-toast: 70;
 }
 
+/* Archival Gallery Light Theme (warm alabaster wall, frosted daylight glass, charcoal ink) */
+:root[data-theme="light"] {
+  --bg-obsidian: hsl(38, 22%, 94%);
+  --bg-charcoal: hsl(36, 18%, 89%);
+  --surface-glass: hsla(38, 28%, 97%, 0.78);
+  --surface-glass-strong: hsla(38, 26%, 97%, 0.88);
+  --surface-glass-control: hsla(38, 28%, 98%, 0.68);
+  --surface-glass-hover: hsla(36, 22%, 91%, 0.86);
+  --surface-chip: hsla(28, 14%, 14%, 0.06);
+
+  --ink-primary: hsl(28, 14%, 13%);
+  --ink-secondary: hsl(28, 9%, 34%);
+  --ink-muted: hsl(28, 7%, 48%);
+  --ink-accent: hsl(34, 44%, 36%);
+
+  --hairline: hsla(28, 14%, 14%, 0.12);
+  --hairline-strong: hsla(28, 14%, 14%, 0.22);
+  --hairline-subtle: hsla(28, 14%, 14%, 0.08);
+}
+
 /* Reset & Base */
 *,
 *::before,
@@ -76,6 +96,11 @@ body {
   -webkit-tap-highlight-color: transparent;
   text-rendering: optimizeLegibility;
   color-scheme: dark;
+}
+
+:root[data-theme="light"],
+:root[data-theme="light"] body {
+  color-scheme: light;
 }
 
 button,
@@ -1529,6 +1554,242 @@ button:disabled {
 .toast.is-visible {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+/* ==========================================================================
+   Light Theme — Archival Museum Wall & Daylight Glass Refinements
+   ========================================================================== */
+
+:root[data-theme="light"] .ambient-backdrop {
+  background: radial-gradient(circle at 50% 42%, hsl(38, 28%, 97%), var(--bg-obsidian) 78%);
+}
+
+:root[data-theme="light"] .ambient-image {
+  filter: blur(76px) saturate(1.12) brightness(1.14) contrast(0.92);
+}
+
+:root[data-theme="light"] .ambient-image.is-visible {
+  opacity: 0.28;
+}
+
+:root[data-theme="light"] .ambient-vignette {
+  background:
+    radial-gradient(ellipse at 50% 48%, hsla(38, 26%, 96%, 0.32) 0%, hsla(36, 18%, 89%, 0.78) 100%),
+    linear-gradient(to bottom, hsla(36, 18%, 90%, 0.35) 0%, transparent 18%, transparent 80%, hsla(36, 18%, 88%, 0.45) 100%);
+}
+
+:root[data-theme="light"] .gallery-grain {
+  opacity: 0.024;
+}
+
+:root[data-theme="light"] .gallery-viewport[data-framing="matte"] .ambient-backdrop {
+  background: radial-gradient(circle at 50% 45%, hsl(38, 26%, 96%), hsl(36, 18%, 90%) 80%);
+}
+
+:root[data-theme="light"] .gallery-viewport:not([data-framing="fill"]) .artwork-img {
+  box-shadow:
+    0 22px 64px hsla(28, 20%, 16%, 0.18),
+    0 4px 16px hsla(28, 18%, 16%, 0.10),
+    0 0 0 1px hsla(28, 14%, 14%, 0.08);
+}
+
+:root[data-theme="light"] .status-ring {
+  border-color: hsla(28, 14%, 14%, 0.14);
+  border-top-color: var(--ink-accent);
+}
+
+:root[data-theme="light"] .chrome-control {
+  box-shadow:
+    0 6px 24px hsla(28, 18%, 16%, 0.10),
+    0 1px 4px hsla(28, 18%, 16%, 0.06);
+}
+
+:root[data-theme="light"] .gallery-viewport.is-idle .chrome-control {
+  opacity: 0.34;
+}
+
+:root[data-theme="light"] .gallery-viewport.is-idle .info-trigger-wrap {
+  opacity: 0.36;
+}
+
+:root[data-theme="light"] .gallery-viewport.is-idle .zoom-control:not(.is-expanded) {
+  opacity: 0.34;
+}
+
+:root[data-theme="light"] .whisper-caption {
+  background: hsla(38, 28%, 98%, 0.80);
+  box-shadow: 0 4px 16px hsla(28, 18%, 16%, 0.08);
+}
+
+:root[data-theme="light"] .zoom-bar {
+  box-shadow:
+    0 6px 24px hsla(28, 18%, 16%, 0.12),
+    0 1px 4px hsla(28, 18%, 16%, 0.06);
+}
+
+:root[data-theme="light"] .zoom-slider::-webkit-slider-runnable-track {
+  background: hsla(28, 14%, 14%, 0.18);
+}
+
+:root[data-theme="light"] .zoom-slider::-webkit-slider-thumb {
+  border-color: hsl(38, 28%, 97%);
+  box-shadow: 0 1px 5px hsla(28, 18%, 16%, 0.22);
+}
+
+:root[data-theme="light"] .zoom-slider::-moz-range-track {
+  background: hsla(28, 14%, 14%, 0.18);
+}
+
+:root[data-theme="light"] .zoom-slider::-moz-range-thumb {
+  border-color: hsl(38, 28%, 97%);
+  box-shadow: 0 1px 5px hsla(28, 18%, 16%, 0.22);
+}
+
+:root[data-theme="light"] .overlay-scrim {
+  background: hsla(30, 14%, 16%, 0.24);
+}
+
+:root[data-theme="light"] .info-drawer {
+  box-shadow: 0 -18px 60px hsla(28, 18%, 16%, 0.16);
+}
+
+:root[data-theme="light"] .menu-drawer {
+  box-shadow: 18px 0 60px hsla(28, 18%, 16%, 0.15);
+}
+
+:root[data-theme="light"] .info-drawer-body,
+:root[data-theme="light"] .menu-body {
+  scrollbar-color: hsla(28, 14%, 14%, 0.20) transparent;
+}
+
+:root[data-theme="light"] .group-action-link:hover:not(:disabled) {
+  background: hsla(34, 44%, 36%, 0.12);
+}
+
+:root[data-theme="light"] .hour-card {
+  background: hsla(28, 14%, 14%, 0.035);
+}
+
+:root[data-theme="light"] .skip-btn {
+  background: hsla(28, 14%, 14%, 0.06);
+}
+
+:root[data-theme="light"] .skip-btn:hover:not(:disabled) {
+  background: hsla(28, 14%, 14%, 0.11);
+}
+
+:root[data-theme="light"] .skip-btn:disabled {
+  background: hsla(28, 14%, 14%, 0.025);
+}
+
+:root[data-theme="light"] .skip-pip.is-spent {
+  box-shadow: inset 0 0 0 1px hsla(28, 14%, 14%, 0.24);
+}
+
+:root[data-theme="light"] .segmented-control {
+  background: hsla(28, 14%, 14%, 0.06);
+}
+
+:root[data-theme="light"] .segment-btn.is-active {
+  background: hsla(38, 36%, 99%, 0.92);
+  color: var(--ink-primary);
+  box-shadow:
+    0 1px 3px hsla(28, 18%, 16%, 0.10),
+    inset 0 0 0 1px var(--hairline);
+}
+
+:root[data-theme="light"] .subtle-action-btn {
+  background: hsla(28, 14%, 14%, 0.03);
+}
+
+:root[data-theme="light"] .install-hint {
+  background: hsla(34, 44%, 36%, 0.08);
+  border-color: hsla(34, 44%, 36%, 0.24);
+}
+
+:root[data-theme="light"] .toggle-row {
+  background: hsla(28, 14%, 14%, 0.028);
+}
+
+:root[data-theme="light"] .toggle-row:hover {
+  background: hsla(28, 14%, 14%, 0.06);
+}
+
+:root[data-theme="light"] .toggle-row.is-unavailable,
+:root[data-theme="light"] .toggle-row.is-unavailable:hover {
+  background: hsla(28, 14%, 14%, 0.015);
+}
+
+:root[data-theme="light"] .only-pill-btn:hover {
+  background: hsla(34, 44%, 36%, 0.10);
+  border-color: hsla(34, 44%, 36%, 0.34) !important;
+}
+
+:root[data-theme="light"] .switch-input {
+  background: hsla(28, 14%, 14%, 0.14);
+}
+
+:root[data-theme="light"] .switch-input::after {
+  background: hsl(38, 30%, 98%);
+  box-shadow: 0 1px 3px hsla(28, 18%, 16%, 0.22);
+}
+
+:root[data-theme="light"] .switch-input:checked {
+  background: hsla(34, 44%, 36%, 0.24);
+  border-color: hsla(34, 44%, 36%, 0.52);
+}
+
+:root[data-theme="light"] .switch-input:checked::after {
+  background: var(--ink-accent);
+  box-shadow: 0 1px 3px hsla(28, 18%, 16%, 0.18);
+}
+
+:root[data-theme="light"] .switch-input:disabled {
+  background: hsla(28, 14%, 14%, 0.07);
+}
+
+:root[data-theme="light"] .switch-input:disabled::after {
+  background: var(--ink-muted);
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .filter-apply-bar {
+  background: linear-gradient(
+    to bottom,
+    hsla(38, 26%, 97%, 0) 0%,
+    hsla(38, 26%, 97%, 0.92) 24%,
+    hsla(38, 26%, 97%, 0.98) 100%
+  );
+}
+
+:root[data-theme="light"] .apply-filters-btn {
+  border-color: hsla(34, 44%, 36%, 0.45);
+  background: hsla(34, 44%, 36%, 0.12);
+}
+
+:root[data-theme="light"] .apply-filters-btn:hover:not(:disabled) {
+  background: hsla(34, 44%, 36%, 0.20);
+  border-color: hsla(34, 44%, 36%, 0.65);
+}
+
+:root[data-theme="light"] .apply-filters-btn:disabled {
+  background: hsla(28, 14%, 14%, 0.03);
+}
+
+:root[data-theme="light"] .about-copy a {
+  text-decoration-color: hsla(34, 44%, 36%, 0.38);
+}
+
+:root[data-theme="light"] .shortcut-list {
+  background: hsla(28, 14%, 14%, 0.03);
+}
+
+:root[data-theme="light"] .kbd {
+  background: hsla(38, 36%, 99%, 0.85);
+}
+
+:root[data-theme="light"] .toast {
+  box-shadow: 0 10px 30px hsla(28, 18%, 16%, 0.14);
 }
 
 /* ==========================================================================
